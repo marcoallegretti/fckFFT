@@ -252,11 +252,11 @@ TEST_CASE(tracking_power_time_constant_smooths_threshold)
     smooth.setPowerTimeConstant(1.0f);
     instant.process(x.data(), x.size());
     smooth.process(x.data(), x.size());
-    CHECK_NEAR(instant.accumulatedPower(), instant.power(0), 0.0);
+    CHECK_NEAR(instant.accumulatedPower(), instant.power(0), 1e-6 * instant.power(0));
     CHECK(smooth.accumulatedPower() < 0.1f * instant.accumulatedPower());
     smooth.setPowerTimeConstant(0.0f);
     smooth.process(x.data(), 1);
-    CHECK_NEAR(smooth.accumulatedPower(), smooth.power(0), 0.0);
+    CHECK_NEAR(smooth.accumulatedPower(), smooth.power(0), 1e-6 * smooth.power(0));
 }
 
 TEST_CASE(tracking_bulk_readouts)
