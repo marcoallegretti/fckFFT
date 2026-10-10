@@ -289,10 +289,12 @@ model:
 
 ## Versioning
 
-Releases follow semantic versioning. `FCKFFT_VERSION_MAJOR`, `FCKFFT_VERSION_MINOR`
-and `FCKFFT_VERSION_PATCH` in `fckfft.h` identify the headers in use. The CMake
-package takes its version from these macros, and configuration fails if the JUCE
-module declares a different one.
+Releases follow semantic versioning. `FCKFFT_VERSION_MAJOR`, `FCKFFT_VERSION_MINOR`,
+`FCKFFT_VERSION_PATCH` and `FCKFFT_VERSION_PRERELEASE` (empty for final releases) in
+`fckfft.h` identify the headers in use. The CMake package takes its version from
+these macros, and configuration fails if the JUCE module declares a different one.
+Before 1.0, minor versions may break the API, so `find_package(fckfft 0.1)` accepts
+0.1.x only.
 
 ## Tests
 

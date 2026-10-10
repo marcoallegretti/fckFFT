@@ -6,10 +6,17 @@ string(REGEX REPLACE "[^;]*MAJOR ([0-9]+);[^;]*MINOR ([0-9]+);[^;]*PATCH ([0-9]+
 
 project(fckFFT VERSION ${FCKFFT_HEADER_VERSION} LANGUAGES CXX)
 
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/include/fckfft/fckfft.h FCKFFT_VERSION_PRERELEASE REGEX "^#define FCKFFT_VERSION_PRERELEASE ")
+string(REGEX REPLACE "^.*\"(.*)\".*$" "\\1" FCKFFT_VERSION_PRERELEASE "${FCKFFT_VERSION_PRERELEASE}")
+set(FCKFFT_VERSION ${PROJECT_VERSION})
+if(FCKFFT_VERSION_PRERELEASE)
+    string(APPEND FCKFFT_VERSION "-${FCKFFT_VERSION_PRERELEASE}")
+endif()
+
 file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/juce/fckfft/fckfft.h FCKFFT_JUCE_VERSION REGEX "^ *version: ")
 string(REGEX REPLACE "^ *version: *" "" FCKFFT_JUCE_VERSION "${FCKFFT_JUCE_VERSION}")
-if(NOT FCKFFT_JUCE_VERSION STREQUAL PROJECT_VERSION)
-    message(FATAL_ERROR "JUCE module version ${FCKFFT_JUCE_VERSION} differs from ${PROJECT_VERSION}")
+if(NOT FCKFFT_JUCE_VERSION STREQUAL FCKFFT_VERSION)
+    message(FATAL_ERROR "JUCE module version ${FCKFFT_JUCE_VERSION} differs from ${FCKFFT_VERSION}")
 endif()
 
 if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
@@ -42,8 +49,13 @@ if(FCKFFT_TOP_LEVEL)
     install(EXPORT fckfftTargets NAMESPACE fckfft:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/fckfft)
     file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/fckfftConfig.cmake
         "include(\${CMAKE_CURRENT_LIST_DIR}/fckfftTargets.cmake)\n")
+    if(PROJECT_VERSION_MAJOR EQUAL 0)
+        set(FCKFFT_COMPATIBILITY SameMinorVersion)
+    else()
+        set(FCKFFT_COMPATIBILITY SameMajorVersion)
+    endif()
     write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/fckfftConfigVersion.cmake
-        COMPATIBILITY SameMajorVersion ARCH_INDEPENDENT)
+        COMPATIBILITY ${FCKFFT_COMPATIBILITY} ARCH_INDEPENDENT)
     install(FILES ${CMAKE_CURRENT_BINARY_DIR}/fckfftConfig.cmake ${CMAKE_CURRENT_BINARY_DIR}/fckfftConfigVersion.cmake
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/fckfft)
 endif()
