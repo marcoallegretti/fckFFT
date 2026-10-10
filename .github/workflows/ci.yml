@@ -23,6 +23,7 @@ jobs:
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DCMAKE_CXX_FLAGS="${{ matrix.flags }}" -DFCKFFT_NO_SIMD=${{ matrix.scalar }}
       - run: cmake --build build --parallel
       - run: ctest --test-dir build --output-on-failure
+      - run: lscpu | grep -E 'Model name|Flags' | cut -c1-200
       - run: ./build/fckfft_bench --bins 88,880 --blocks 48 --repetitions 9
 
   sanitizers:
@@ -48,6 +49,7 @@ jobs:
       - run: cmake -S . -B build -DCMAKE_CXX_FLAGS="/EHsc ${{ matrix.flags }}"
       - run: cmake --build build --config Release --parallel
       - run: ctest --test-dir build -C Release --output-on-failure
+      - run: (Get-CimInstance Win32_Processor).Name
       - run: build/Release/fckfft_bench.exe --bins 88,880 --blocks 48 --repetitions 9
 
   macos:
@@ -57,6 +59,7 @@ jobs:
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build --parallel
       - run: ctest --test-dir build --output-on-failure
+      - run: sysctl -n machdep.cpu.brand_string hw.l1dcachesize
       - run: ./build/fckfft_bench --bins 88,880 --blocks 48 --repetitions 9
 
   arm-linux:
@@ -114,5 +117,5 @@ jobs:
           libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev
           libxrender-dev libxi-dev libgl1-mesa-dev
       - run: git clone --depth 1 --branch 9.0.3 https://github.com/juce-framework/JUCE ../JUCE
-      - run: cmake -S examples/juce/spectrogram -B build-juce -DCMAKE_BUILD_TYPE=Release -DJUCE_DIR=${{ github.workspace }}/../JUCE
+      - run: cmake -S examples/juce/spectrogram -B build-juce -DCMAKE_BUILD_TYPE=Release -DJUCE_DIR="$GITHUB_WORKSPACE/../JUCE"
       - run: cmake --build build-juce --parallel
