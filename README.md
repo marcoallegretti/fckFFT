@@ -131,12 +131,10 @@ halves the cost.
 ## Accuracy
 
 - **noFFT parity.** Compared with noFFT's output (Apple Accelerate) on an 88-bin
-  piano-range chirp, the maximum magnitude difference is 2.9e-6. The maximum complex
-  difference is 5.8e-4. That comes from phase drift, since both float implementations
-  round the per-sample phasor increment. Against an extended-precision evaluation,
-  noFFT deviates by 5.7e-4 (complex). fckFFT deviates by 2.0e-4 (complex) and 5.6e-7
-  (magnitude), because it computes the phasor increment in double precision before
-  rounding.
+  piano-range chirp, the maximum magnitude difference is 6.2e-6. Against a
+  double-precision evaluation of the same recurrence, fckFFT deviates by 7.0e-6 in
+  magnitude and 7.0e-6 in complex value; noFFT deviates by 2.4e-6 in magnitude and
+  7.6e-4 in complex value, because its per-sample phasor drifts in float.
 - **Tracking parity.** The tracking bank matches a double-precision model of the
   reference tracking algorithm within 0.03 Hz and 2.1e-4 magnitude on tones, vibrato
   and chirps.
@@ -153,7 +151,9 @@ decaying signals (verified with Callgrind; Clang's scalar build varies by less t
 0.1%). On ARM VFP targets the scalar kernel selects
 values with `vcmp`/`vmrs`/conditional moves instead of branches. The only
 data-dependent work is the recovery path described below, which adds 0.02% when it
-triggers.
+triggers. `powers` and `magnitudes` cost a few nanoseconds per resonator; `values`
+and `phases` rotate each resonator back to the baseband with a sine and cosine, about
+30 and 60 ns per resonator on x86.
 
 **Floating-point environment.** `process()` scopes flush-to-zero on x86 (MXCSR),
 AArch64 (FPCR) and 32-bit ARM VFP (FPSCR), so decaying resonators never hit denormal
@@ -161,14 +161,15 @@ slow paths, whatever the host's floating-point state. Without it, x86 slowed dow
 about 100× after one second of silence.
 
 **Invalid input.** A NaN or infinite input sample corrupts the resonators for at most
-128 samples: at the next renormalisation boundary, every resonator whose state is
+128 samples: at the next 128-sample check, every resonator whose state is
 not finite is reset, and the rest are untouched. Recovery relies on IEEE
 semantics, so do not compile with `-ffinite-math-only` or `-ffast-math`.
 
 **Errors.** No function throws, except the `init` of the `Dynamic` banks, which can
 throw `std::bad_alloc` from `std::vector`. Every other member is `noexcept`. `init`
 returns `false` for invalid parameters, and an uninitialised bank ignores `process`.
-Out-of-range indices passed to the read-out functions are not checked.
+Out-of-range indices passed to the read-out functions, including any index on an
+uninitialised bank, are not checked.
 
 **Threads.** A bank has no internal synchronisation. `process`, the setters and
 the read-outs of one bank must not run concurrently; separate banks are independent.
@@ -184,24 +185,24 @@ storage is inline.
 
 | Quantity | Limit |
 |---|---|
-| Resonator frequency | relative error ≤ 8e-8 (phase drifts by at most 2π·f·8e-8 rad/s against an exact clock) |
+| Phase | within 2e-6 rad of the double-precision recurrence at the heuristic time constants, with no drift (the frequency error measured over one hour is below 1e-11) |
 | Time constant | relative error ≈ 3e-8 / α: 1.7e-4 at α = 1e-4, 1.8e-3 at α = 1e-5; α below 1e-5 (τ > 2 s at 48 kHz) is not recommended |
 | Input amplitude | exact up to ±1e18; larger values overflow the power |
-| Long-run stability | after one hour of input, the response matches a freshly reset bank within 6e-8 |
+| Long-run stability | after one hour of input, magnitude and phase match the double-precision recurrence as closely as after one second (3.4e-7, 2e-7 rad) |
 
 ## Performance
 
 ### Desktop
 
 Intel Xeon @ 2.1 GHz (shared virtual machine), 48 kHz, 48-sample blocks,
-`bench/bench.cpp`, best of three medians of 11 runs, ns per input sample:
+`bench/bench.cpp`, best median over repeated runs, ns per input sample:
 
 | Kernel, bins | SSE2 | AVX2 + FMA | AVX-512 |
 |---|---|---|---|
-| fixed, 88 | 50 | 28 | 15 |
-| fixed, 264 | 151 | 76 | 43 |
-| fixed, 440 | 245 | 132 | 69 |
-| fixed, 880 | 455 | 241 | 128 |
+| fixed, 88 | 45 | 18 | 10 |
+| fixed, 264 | 128 | 50 | 31 |
+| fixed, 440 | 204 | 85 | 53 |
+| fixed, 880 | 424 | 170 | 96 |
 | tracking `none`, 88 | 107 | 84 | 65 |
 | tracking chord, 88 | 295 | 158 | 106 |
 | tracking tangent, 88 | 307 | 126 | 102 |
@@ -209,12 +210,18 @@ Intel Xeon @ 2.1 GHz (shared virtual machine), 48 kHz, 48-sample blocks,
 
 On the same machine and instruction set (AVX2 + FMA), the Rust
 [resonators](https://github.com/jhartquist/resonators) crate takes 68.6, 182, 276 and
-499 ns per sample for 88, 264, 440 and 880 bins, so the AVX2 fixed bank is 2.1–2.4×
+499 ns per sample for 88, 264, 440 and 880 bins, so the AVX2 fixed bank is 2.9–3.7×
 faster. Its README reports it 1.6× faster than noFFT on an Apple M2.
 
-The fixed bank keeps each group of resonators in registers for a whole block,
-instead of streaming the full state through memory for every sample. It also stores
-`r / alpha` instead of `r`, which removes one multiply per resonator per sample.
+The fixed bank runs each resonator as a complex one-pole filter at its own frequency,
+`v = (1 − α)·e^(−jω)·v + x`, followed by a second complex pole for the β smoothing,
+instead of a baseband EWMA behind a rotating phasor. The two are the same filter:
+the state differs only by the rotation `e^(−jωn)`, which `values` and `phases` apply
+at read-out. This removes the phasor, its renormalisation and four multiplies per
+resonator per sample, so the SIMD kernels run on 8 fused multiply-adds per resonator
+per sample and 32 bytes of state. Each group of resonators stays in registers for
+a whole block. On the same machine the previous kernel measured 50, 28 and 15 ns per
+sample at 88 bins on SSE2, AVX2 and AVX-512.
 
 Exact tracking advances every resonator in lockstep, one sample at a time, because
 each sample's threshold depends on the strongest resonator in the bank, so its state
@@ -249,17 +256,21 @@ loops that GCC generates with libDaisy's flags. These are model estimates; run
 
 | Kernel | Cycles per resonator per sample | CPU at 480 MHz, 48 kHz |
 |---|---|---|
-| fixed | 17.5 | 88 bins: 15%, 256 bins: 45% |
+| fixed | 15.8 | 88 bins: 14%, 256 bins: 40% |
 | tracking `none` | ~86 | 49 bins: 42% |
 | tracking tangent / chord | ~159 / ~164 | 32 bins: ~52% |
 | tracking EWMA | ~233 | 32 bins: ~75% |
 
 On this model, the reference loop order (every sample streams every resonator's
-state through memory) costs 77 cycles per resonator per sample, about 4.4× the fixed
-kernel. The test suite runs on a Cortex-M7 under QEMU (`mps2-an500`).
+state through memory) costs 77 cycles per resonator per sample, about 4.9× the fixed
+kernel. The VFP's fused multiply-add overwrites its accumulator, so the scalar kernel
+uses a copy-free formulation with 11 operations per resonator per sample instead of
+the 8 fused operations of the SIMD kernels; the previous phasor kernel measured 17.5
+cycles on this model. The test suite runs on a Cortex-M7 under QEMU (`mps2-an500`).
 
-Memory per resonator: 56 bytes for the fixed bank and 96 bytes for the tracking bank
-on the scalar kernel, plus padding to the kernel's lane count.
+Memory per resonator: 48 bytes for the fixed bank (32 of state and coefficients) and
+96 bytes for the tracking bank on the scalar kernel, plus padding to the kernel's lane
+count.
 
 ## Differences from the reference implementations
 
@@ -280,9 +291,12 @@ model:
 - **Vector edge cases.** The reference NEON threshold merge writes its scalar tail
   to the wrong array and reads out of bounds for fewer than four resonators. fckFFT
   has no separate tail path.
-- **Renormalisation timing.** Phasors are renormalised every 128 samples (32 for
-  tracking banks), counted from the last reset, instead of once per `update` call.
-  Long blocks therefore cannot drift, and results do not depend on block size.
+- **Resonator form.** The fixed bank has no phasor: each resonator is a complex
+  one-pole filter at its own frequency, and the read-out rotates the state back to
+  the baseband from the sample count. Magnitudes match the reference recurrence
+  within rounding, the phase cannot drift, and results do not depend on block size.
+  Tracking banks keep the phasor form and renormalise it every 32 samples, counted
+  from the last reset, instead of once per `update` call.
 - **Instantaneous frequency.** The readout uses the delta phase smoothed with
   `gamma`, as in the reference scalar resonator. Tracking itself uses the raw delta
   phase, as in the reference bank.
