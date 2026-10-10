@@ -44,8 +44,10 @@ bank.magnitudes(magnitudes);
 
 Without `alphas`, each resonator uses the per-frequency heuristic from the Resonate
 paper (`fckfft::heuristicAlpha`). Pass explicit `alphas` and `betas` arrays to
-choose the time constants; `fckfft::alphaFromTimeConstant` converts from seconds.
-A full-scale sine at a resonator's frequency produces a magnitude of 0.5.
+choose the time constants; `fckfft::alphaFromTimeConstant` converts from seconds,
+`fckfft::alphaForBandwidth` from a −3 dB bandwidth in Hz and `fckfft::alphaForQ`
+from a quality factor. A full-scale sine at a resonator's frequency produces a
+magnitude of 0.5.
 
 Banks come in three storage flavours with the same interface:
 
@@ -142,6 +144,34 @@ halves the cost.
   0.01–0.02 Hz on steady tones. The tuner example reads to within 0.21 cents from
   E2 to E6, harmonics included, and settles within 1 cent in 14–190 ms.
 
+## Frequency response
+
+Each resonator (with `beta = alpha`) is a pair of identical complex one-pole filters,
+so its magnitude response falls by 12 dB per octave of offset and its −3 dB bandwidth
+is `0.205·alpha·sampleRate` Hz for small `alpha`. The table gives the response of the
+Resonate heuristic `alpha` at 48 kHz, computed from the transfer function and
+verified on the bank with tones (within 0.03 dB at 55 and 440 Hz, and 2e-7 in
+magnitude against a double-precision recurrence at 4186 Hz):
+
+| Frequency | `alpha` | Q | −3 dB width | Noise bandwidth | −1 / +1 semitone | −2 / +2 semitones | 10–90 % rise | Time to 90 % |
+|---|---|---|---|---|---|---|---|---|
+| 27.5 Hz | 0.00039 | 7.1 | 3.9 Hz | 4.7 Hz | −2.0 / −2.2 dB | −6.0 / −7.1 dB | 178 ms | 206 ms |
+| 110 Hz | 0.00112 | 10.0 | 11.0 Hz | 13.4 Hz | −3.6 / −4.0 dB | −9.4 / −10.8 dB | 62 ms | 72 ms |
+| 440 Hz | 0.00346 | 12.9 | 34.1 Hz | 41.6 Hz | −5.4 / −5.9 dB | −12.6 / −14.2 dB | 20 ms | 23 ms |
+| 1760 Hz | 0.01123 | 15.8 | 111 Hz | 136 Hz | −7.3 / −7.9 dB | −15.5 / −17.2 dB | 6.2 ms | 7.2 ms |
+| 4186 Hz | 0.02379 | 17.7 | 237 Hz | 289 Hz | −8.4 / −9.0 dB | −17.1 / −18.9 dB | 2.9 ms | 3.4 ms |
+
+The heuristic therefore favours speed over selectivity: with semitone-spaced bins, a
+tone also appears in its neighbours at −2 to −9 dB. A Hann-windowed STFT bin with
+the same −3 dB width has about the same latency (half its window: 65 ms at 110 Hz,
+21 ms at 440 Hz, 3.1 ms at 4186 Hz, against the times to 90 % above) and rejects
+the neighbouring semitone slightly better (−3.8 to −13.7 dB), but rejects the second
+semitone far better (−17 to −47 dB against −9 to −19 dB), because the resonator's
+skirts fall at only 12 dB per octave. To trade latency for selectivity, choose
+`alpha` with `alphaForQ`: at Q = 17 the neighbouring semitone is at least 8 dB down
+everywhere, and the time to 90 % becomes 490 ms at 27.5 Hz, 31 ms at 440 Hz and
+3.2 ms at 4186 Hz.
+
 ## Guarantees
 
 **Real time.** `process()` performs no heap allocation, takes no locks and makes no
@@ -233,20 +263,21 @@ chord and EWMA rules, on this machine and on the four x86 runners below.
 ### Continuous integration runners
 
 Single runs (median of 9) on shared GitHub-hosted machines, so differences of ±30%
-between runs of the same job are common. ns per input sample, 48-sample blocks:
+between runs of the same job are common and the machine behind a job changes from
+run to run. ns per input sample, 48-sample blocks:
 
 | Machine, build | fixed 88 | fixed 880 | chord 88 | chord 880 | EWMA 88 | EWMA 880 |
 |---|---|---|---|---|---|---|
-| AMD EPYC 9V45, GCC, AVX-512 | 17.2 | 158 | 90 | 793 | 170 | 1399 |
-| AMD EPYC 7763, Clang, AVX2 | 30.8 | 276 | 150 | 1311 | 236 | 2112 |
-| AMD EPYC 9V74, MSVC, AVX2 | 21.9 | 202 | 130 | 1164 | 209 | 1893 |
-| Intel Xeon 8370C, MSVC, SSE2 | 58.7 | 591 | 340 | 3392 | 624 | 6243 |
-| Apple M1 (virtual), Clang, NEON | 31.2–34.2 | 318–540 | 158–179 | 1559–2820 | 282–305 | 2814–4487 |
+| AMD EPYC 9V74, GCC, AVX2 + FMA | 13.7 | 128 | 129 | 1139 | 256 | 1938 |
+| AMD EPYC 7763, Clang, AVX2 + FMA | 19.1 | 176 | 153 | 1314 | 240 | 2200 |
+| Intel Xeon 8370C, MSVC, AVX2 + FMA | 16.9 | 320 | 150 | 1299 | 244 | 2180 |
+| AMD EPYC 7763, MSVC, SSE2 | 45.6 | 427 | 341 | 3243 | 588 | 6193 |
+| Apple M1 (virtual), Clang, NEON | 24.8 | 220 | 167 | 1670 | 308 | 3019 |
 
-The Apple row gives the range over two runs. The resonators README reports 41.9 ns
+On the same Apple M1 runner, the previous phasor kernel measured 31–34 ns at 88 bins
+and 318–540 ns at 880 bins over two runs. The resonators README reports 41.9 ns
 (88 bins) and 357 ns (880 bins) for the Rust crate on an Apple M2 Max, and 66.8 and
-578 ns for noFFT with Accelerate. On the slower M1, fckFFT is faster at 88 bins in
-both runs; at 880 bins the runs straddle the Rust figure.
+578 ns for noFFT with Accelerate; on the slower M1, fckFFT takes 24.8 and 220 ns.
 
 ### Cortex-M7 (Daisy Seed)
 
