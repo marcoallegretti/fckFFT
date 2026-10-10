@@ -137,6 +137,37 @@ struct TrackingKernel
         st(g, kWi, wi);
     }
 
+    static void sanitize(float* groups, std::size_t numGroups)
+    {
+        const V zero = Ops::set(0.0f);
+        for (std::size_t g = 0; g < numGroups; ++g)
+            for (std::size_t half = 0; half < 2; ++half)
+            {
+                float* base = groups + g * kGroupFloats + half * kWidth;
+                V t = zero;
+                for (int f = kZr; f < kFields; ++f)
+                    t = Ops::madd(ld(base, f), zero, t);
+                float lanes[kWidth];
+                Ops::store(lanes, t);
+                bool finite = true;
+                for (std::size_t l = 0; l < kWidth; ++l)
+                    finite = finite && lanes[l] == 0.0f;
+                if (finite)
+                    continue;
+                for (int f = kZr; f < kFields; ++f)
+                {
+                    V reset = zero;
+                    if (f == kZr)
+                        reset = Ops::set(1.0f);
+                    else if (f == kWr)
+                        reset = ld(base, kNwr);
+                    else if (f == kWi)
+                        reset = ld(base, kNwi);
+                    st(base, f, Ops::selectGe(t, zero, ld(base, f), reset));
+                }
+            }
+    }
+
     template <TrackingRule Rule>
     static void process(float* groups, std::size_t numGroups, const float* x, std::size_t n, std::size_t stride,
                         bool renormalizeAtEnd, float sigma, float ratio, float& accPower)
@@ -190,6 +221,7 @@ public:
     using Kernel = detail::TrackingKernel<simd::NativeOps>;
     static constexpr std::size_t kLanes = Kernel::kLanes;
     static constexpr std::size_t kNormalizeInterval = 32;
+    static constexpr std::size_t kSanitizeEvery = 4;
     static constexpr float kInitialAccumulatedPower = 0.0001f;
 
     static constexpr std::size_t storageSize(std::size_t numResonators)
@@ -236,6 +268,7 @@ public:
         }
         accPower_ = kInitialAccumulatedPower;
         sinceNormalize_ = 0;
+        renormalizations_ = 0;
     }
 
     void process(const float* input, std::size_t numSamples, std::size_t stride = 1)
@@ -249,6 +282,12 @@ public:
             const std::size_t n = numSamples < due ? numSamples : due;
             const bool renormalize = n == due;
             processChunk(input, n, stride, renormalize);
+            if (renormalize && ++renormalizations_ % kSanitizeEvery == 0)
+            {
+                Kernel::sanitize(groups_, numGroups_);
+                if (!std::isfinite(accPower_))
+                    accPower_ = kInitialAccumulatedPower;
+            }
             sinceNormalize_ = renormalize ? 0 : sinceNormalize_ + n;
             input += n * stride;
             numSamples -= n;
@@ -453,6 +492,7 @@ private:
     std::size_t size_ = 0;
     std::size_t numGroups_ = 0;
     std::size_t sinceNormalize_ = 0;
+    std::size_t renormalizations_ = 0;
     float sampleRate_ = 0.0f;
     float sigma_ = 1.0f;
     float ratio_ = 1e-6f;

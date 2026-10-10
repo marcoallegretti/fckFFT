@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <vector>
 
 #include <fckfft/frequencies.h>
@@ -281,4 +282,31 @@ TEST_CASE(tracking_bulk_readouts)
         CHECK_NEAR(v[k].re, bank.value(k).re, 0.0);
         CHECK_NEAR(bank.deltaPhase(k) * 48000.0 / (2.0 * signals::kPi), inst[k] - rf[k], 1e-2);
     }
+}
+
+TEST_CASE(tracking_recovers_from_non_finite_input)
+{
+    const std::vector<float> f = semitones(400.0f, 9);
+    const float bad[2] = {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()};
+    const std::size_t bound =
+        fckfft::TrackingResonatorBank::kNormalizeInterval * fckfft::TrackingResonatorBank::kSanitizeEvery;
+    for (int rule = 0; rule < 4; ++rule)
+        for (float poison : bad)
+        {
+            fckfft::DynamicTrackingResonatorBank bank;
+            CHECK(bank.init(f.data(), f.size(), 48000.0f, static_cast<TrackingRule>(rule)));
+            std::vector<float> x = signals::tone(48000, 48000.0, 452.0);
+            x[1000] = poison;
+            bank.process(x.data(), 1000 + bound);
+            for (std::size_t k = 0; k < f.size(); ++k)
+            {
+                CHECK(std::isfinite(bank.power(k)));
+                CHECK(std::isfinite(bank.resonantFrequency(k)));
+                CHECK(std::isfinite(bank.instantaneousFrequency(k)));
+            }
+            CHECK(std::isfinite(bank.accumulatedPower()));
+            bank.process(x.data() + 1000 + bound, x.size() - 1000 - bound);
+            if (rule != 0)
+                CHECK_NEAR(bank.resonantFrequency(strongest(bank)), 452.0, 0.05);
+        }
 }

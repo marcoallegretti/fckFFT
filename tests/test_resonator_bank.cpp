@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -307,5 +308,27 @@ TEST_CASE(bank_frequency_selectivity)
             if (bank.power(k) > bank.power(best))
                 best = k;
         CHECK(best == target);
+    }
+}
+
+TEST_CASE(bank_recovers_from_non_finite_input)
+{
+    const std::vector<float> f = semitoneBins(200.0f, 19);
+    const float bad[2] = {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()};
+    for (float poison : bad)
+    {
+        fckfft::DynamicResonatorBank bank, clean;
+        CHECK(bank.init(f.data(), f.size(), 48000.0f));
+        CHECK(clean.init(f.data(), f.size(), 48000.0f));
+        std::vector<float> x = signals::tone(9600, 48000.0, 440.0);
+        x[1000] = poison;
+        bank.process(x.data(), 1000 + fckfft::ResonatorBank::kNormalizeInterval);
+        for (std::size_t k = 0; k < f.size(); ++k)
+            CHECK(std::isfinite(bank.power(k)));
+        bank.reset();
+        bank.process(x.data() + 2000, 7600);
+        clean.process(x.data() + 2000, 7600);
+        for (std::size_t k = 0; k < f.size(); ++k)
+            CHECK_NEAR(bank.value(k).re, clean.value(k).re, 0.0);
     }
 }

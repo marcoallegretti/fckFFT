@@ -107,6 +107,19 @@ struct BankKernel
         const V k = Ops::nmadd(Ops::set(0.5f), m, Ops::set(1.5f));
         p.zr = Ops::mul(p.zr, k);
         p.zi = Ops::mul(p.zi, k);
+        const V zero = Ops::set(0.0f);
+        V t = Ops::mul(p.zr, zero);
+        t = Ops::madd(p.zi, zero, t);
+        t = Ops::madd(p.ur, zero, t);
+        t = Ops::madd(p.ui, zero, t);
+        t = Ops::madd(p.sr, zero, t);
+        t = Ops::madd(p.si, zero, t);
+        p.zr = Ops::selectGe(t, zero, p.zr, Ops::set(1.0f));
+        p.zi = Ops::selectGe(t, zero, p.zi, zero);
+        p.ur = Ops::selectGe(t, zero, p.ur, zero);
+        p.ui = Ops::selectGe(t, zero, p.ui, zero);
+        p.sr = Ops::selectGe(t, zero, p.sr, zero);
+        p.si = Ops::selectGe(t, zero, p.si, zero);
     }
 
     static void process(float* groups, std::size_t numGroups, const float* x, std::size_t n, std::size_t stride,
