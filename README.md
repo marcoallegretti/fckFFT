@@ -128,11 +128,6 @@ default), NEON, or scalar. Define `FCKFFT_NO_SIMD` to force the scalar kernel.
 Plugins built with default x86-64 flags use SSE2; enabling AVX2 and FMA roughly
 halves the cost.
 
-`process` scopes flush-to-zero on x86 (MXCSR), AArch64 (FPCR) and 32-bit ARM VFP
-(FPSCR), so decaying resonators never hit denormal slow paths, whatever the host's
-floating-point state. Without it, x86 slowed down about 100× after one second of
-silence.
-
 ## Accuracy
 
 - **noFFT parity.** Compared with noFFT's output (Apple Accelerate) on an 88-bin
@@ -149,32 +144,102 @@ silence.
   0.01–0.02 Hz on steady tones. The tuner example reads to within 0.21 cents from
   E2 to E6, harmonics included, and settles within 1 cent in 14–190 ms.
 
+## Guarantees
+
+**Real time.** `process()` performs no heap allocation, takes no locks and makes no
+system calls. On every SIMD backend and on the GCC-built scalar kernel, the number of
+executed instructions per block is identical for silence, noise, full-scale tones and
+decaying signals (verified with Callgrind; Clang's scalar build varies by less than
+0.1%). On ARM VFP targets the scalar kernel selects
+values with `vcmp`/`vmrs`/conditional moves instead of branches. The only
+data-dependent work is the recovery path described below, which adds 0.02% when it
+triggers.
+
+**Floating-point environment.** `process()` scopes flush-to-zero on x86 (MXCSR),
+AArch64 (FPCR) and 32-bit ARM VFP (FPSCR), so decaying resonators never hit denormal
+slow paths, whatever the host's floating-point state. Without it, x86 slowed down
+about 100× after one second of silence.
+
+**Invalid input.** A NaN or infinite input sample corrupts the resonators for at most
+128 samples: at the next renormalisation boundary, every resonator whose state is
+not finite is reset, and the rest are untouched. Recovery relies on IEEE
+semantics, so do not compile with `-ffinite-math-only` or `-ffast-math`.
+
+**Errors.** No function throws, except the `init` of the `Dynamic` banks, which can
+throw `std::bad_alloc` from `std::vector`. Every other member is `noexcept`. `init`
+returns `false` for invalid parameters, and an uninitialised bank ignores `process`.
+Out-of-range indices passed to the read-out functions are not checked.
+
+**Threads.** A bank has no internal synchronisation. `process`, the setters and
+the read-outs of one bank must not run concurrently; separate banks are independent.
+To display results on another thread, copy them out after `process` (the JUCE
+example uses a lock-free FIFO).
+
+**Ownership.** Banks are not copyable. `Dynamic` banks and banks over caller-owned
+storage are movable (for example into a `std::vector`, one per channel); a moved-from
+bank is uninitialised. `Static` banks are neither copyable nor movable because their
+storage is inline.
+
+**Precision limits** (float32 state, measured):
+
+| Quantity | Limit |
+|---|---|
+| Resonator frequency | relative error ≤ 8e-8 (phase drifts by at most 2π·f·8e-8 rad/s against an exact clock) |
+| Time constant | relative error ≈ 3e-8 / α: 1.7e-4 at α = 1e-4, 1.8e-3 at α = 1e-5; α below 1e-5 (τ > 2 s at 48 kHz) is not recommended |
+| Input amplitude | exact up to ±1e18; larger values overflow the power |
+| Long-run stability | after one hour of input, the response matches a freshly reset bank within 6e-8 |
+
 ## Performance
 
 ### Desktop
 
-Intel Xeon @ 2.1 GHz, 48 kHz, 48-sample blocks, `bench/bench.cpp`, median of 15
-runs, ns per input sample:
+Intel Xeon @ 2.1 GHz (shared virtual machine), 48 kHz, 48-sample blocks,
+`bench/bench.cpp`, best of three medians of 11 runs, ns per input sample:
 
 | Kernel, bins | SSE2 | AVX2 + FMA | AVX-512 |
 |---|---|---|---|
-| fixed, 88 | 77 | 32 | 21 |
-| fixed, 264 | 150 | 86 | 59 |
-| fixed, 440 | 258 | 136 | 92 |
-| fixed, 880 | 491 | 294 | 183 |
-| tracking `none`, 88 | 183 | 92 | |
-| tracking chord, 88 | 312 | 219 | |
-| tracking tangent, 88 | 301 | 142 | |
-| tracking EWMA, 88 | 580 | 313 | |
+| fixed, 88 | 50 | 28 | 15 |
+| fixed, 264 | 151 | 76 | 43 |
+| fixed, 440 | 245 | 132 | 69 |
+| fixed, 880 | 455 | 241 | 128 |
+| tracking `none`, 88 | 107 | 84 | 65 |
+| tracking chord, 88 | 295 | 158 | 106 |
+| tracking tangent, 88 | 307 | 126 | 102 |
+| tracking EWMA, 88 | 572 | 273 | 160 |
 
 On the same machine and instruction set (AVX2 + FMA), the Rust
 [resonators](https://github.com/jhartquist/resonators) crate takes 68.6, 182, 276 and
-499 ns per sample for 88, 264, 440 and 880 bins. Its README reports it 1.6× faster
-than noFFT on an Apple M2.
+499 ns per sample for 88, 264, 440 and 880 bins, so the AVX2 fixed bank is 2.1–2.4×
+faster. Its README reports it 1.6× faster than noFFT on an Apple M2.
 
 The fixed bank keeps each group of resonators in registers for a whole block,
 instead of streaming the full state through memory for every sample. It also stores
 `r / alpha` instead of `r`, which removes one multiply per resonator per sample.
+
+Exact tracking advances every resonator in lockstep, one sample at a time, because
+each sample's threshold depends on the strongest resonator in the bank, so its state
+(96 bytes per resonator) streams through the cache on every sample. At 880 bins this
+state (84 KB) exceeds the L1 data cache of every x86 machine measured here (32–48 KB),
+yet the cost per bin at 880 bins is 0.8–1.0× the cost per bin at 88 bins, for the
+chord and EWMA rules, on this machine and on the four x86 runners below.
+
+### Continuous integration runners
+
+Single runs (median of 9) on shared GitHub-hosted machines, so differences of ±30%
+between runs of the same job are common. ns per input sample, 48-sample blocks:
+
+| Machine, build | fixed 88 | fixed 880 | chord 88 | chord 880 | EWMA 88 | EWMA 880 |
+|---|---|---|---|---|---|---|
+| AMD EPYC 9V45, GCC, AVX-512 | 17.2 | 158 | 90 | 793 | 170 | 1399 |
+| AMD EPYC 7763, Clang, AVX2 | 30.8 | 276 | 150 | 1311 | 236 | 2112 |
+| AMD EPYC 9V74, MSVC, AVX2 | 21.9 | 202 | 130 | 1164 | 209 | 1893 |
+| Intel Xeon 8370C, MSVC, SSE2 | 58.7 | 591 | 340 | 3392 | 624 | 6243 |
+| Apple M1 (virtual), Clang, NEON | 31.2–34.2 | 318–540 | 158–179 | 1559–2820 | 282–305 | 2814–4487 |
+
+The Apple row gives the range over two runs. The resonators README reports 41.9 ns
+(88 bins) and 357 ns (880 bins) for the Rust crate on an Apple M2 Max, and 66.8 and
+578 ns for noFFT with Accelerate. On the slower M1, fckFFT is faster at 88 bins in
+both runs; at 880 bins the runs straddle the Rust figure.
 
 ### Cortex-M7 (Daisy Seed)
 
@@ -186,8 +251,8 @@ loops that GCC generates with libDaisy's flags. These are model estimates; run
 |---|---|---|
 | fixed | 17.5 | 88 bins: 15%, 256 bins: 45% |
 | tracking `none` | ~86 | 49 bins: 42% |
-| tracking tangent / chord | ~157 / ~160 | 32 bins: ~51% |
-| tracking EWMA | ~216 | 32 bins: ~69% |
+| tracking tangent / chord | ~159 / ~164 | 32 bins: ~52% |
+| tracking EWMA | ~233 | 32 bins: ~75% |
 
 On this model, the reference loop order (every sample streams every resonator's
 state through memory) costs 77 cycles per resonator per sample, about 4.4× the fixed
@@ -222,6 +287,11 @@ model:
   `gamma`, as in the reference scalar resonator. Tracking itself uses the raw delta
   phase, as in the reference bank.
 
+## Versioning
+
+Releases follow semantic versioning. `FCKFFT_VERSION_MAJOR`, `FCKFFT_VERSION_MINOR`
+and `FCKFFT_VERSION_PATCH` in `fckfft.h` identify the headers in use.
+
 ## Tests
 
 ```sh
@@ -232,9 +302,24 @@ ctest --test-dir build
 
 The suite covers noFFT parity, tracking parity with a double-precision model,
 block-size independence, stride handling, padding lanes, long-run stability,
-silence, parameter changes and the frequency utilities, the latter against
-librosa's mel tables. It passes on SSE2, AVX, AVX2/FMA, AVX-512 and scalar builds
-(GCC and Clang), AArch64 NEON, ARMv7 NEON and a bare-metal Cortex-M7.
+silence, invalid input, move semantics, parameter changes and the frequency
+utilities, the latter against librosa's mel tables. A randomised test compares 120
+configurations (1–40 bins from DC to Nyquist, α and β from 1e-3 to 1, random block
+sizes and strides) with a double-precision model; the worst error is 1.5e-6.
+
+Continuous integration runs the suite with GCC, Clang and MSVC on SSE2, AVX,
+AVX2/FMA, AVX-512 and scalar builds, under AddressSanitizer and
+UndefinedBehaviorSanitizer, on Apple Silicon, on AArch64 and ARMv7 NEON, and on a
+bare-metal Cortex-M7. It also builds both Daisy examples against libDaisy and the
+JUCE example plugin, and fuzzes both banks for two minutes.
+
+To fuzz locally (Clang):
+
+```sh
+cmake -S . -B build-fuzz -DCMAKE_CXX_COMPILER=clang++ -DFCKFFT_BUILD_FUZZERS=ON
+cmake --build build-fuzz --target fckfft_fuzz_banks
+./build-fuzz/fckfft_fuzz_banks -max_total_time=600
+```
 
 To run the suite on the QEMU Cortex-M7 machine:
 
