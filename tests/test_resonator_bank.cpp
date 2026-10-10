@@ -425,3 +425,35 @@ TEST_CASE(bank_matches_double_model_on_random_configurations)
     CHECK_NEAR(worst, 0.0, 1e-5);
     CHECK_NEAR(worstComplex, 0.0, 1e-5);
 }
+
+TEST_CASE(bank_bandwidth_helpers_hit_minus_three_decibels)
+{
+    const float sr = 48000.0f;
+    const struct { float f0, bandwidth; } cases[] = {{100.0f, 10.0f}, {440.0f, 26.0f}, {1000.0f, 100.0f}, {8000.0f, 2000.0f}};
+    for (const auto& c : cases)
+    {
+        const float a = fckfft::alphaForBandwidth(c.bandwidth, sr);
+        CHECK(a > 0.0f && a < 1.0f);
+        CHECK_NEAR(fckfft::alphaForQ(c.f0, c.f0 / c.bandwidth, sr), a, 1e-6 * a);
+        double level[3];
+        const double tones[3] = {c.f0 - 0.5 * c.bandwidth, c.f0, c.f0 + 0.5 * c.bandwidth};
+        for (int t = 0; t < 3; ++t)
+        {
+            fckfft::DynamicResonatorBank bank;
+            CHECK(bank.init(&c.f0, &a, 1, sr));
+            const std::size_t settle = static_cast<std::size_t>(40.0 / a), periods = static_cast<std::size_t>(sr / tones[t]) + 1;
+            const std::vector<float> x = signals::tone(settle + 64 * periods, sr, tones[t]);
+            bank.process(x.data(), settle);
+            double sum = 0.0;
+            for (std::size_t i = settle; i < x.size(); ++i)
+            {
+                bank.process(x[i]);
+                sum += bank.magnitude(0);
+            }
+            level[t] = sum / static_cast<double>(x.size() - settle);
+        }
+        CHECK_NEAR(level[1], 0.5, 0.005);
+        CHECK_NEAR(20.0 * std::log10(level[0] / level[1]), -3.01, 0.1);
+        CHECK_NEAR(20.0 * std::log10(level[2] / level[1]), -3.01, 0.1);
+    }
+}
