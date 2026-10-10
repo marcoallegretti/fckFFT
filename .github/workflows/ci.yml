@@ -46,6 +46,16 @@ jobs:
       - run: cmake --build build --parallel
       - run: mkdir corpus && ./build/fckfft_fuzz_banks -max_total_time=120 -max_len=8192 corpus
 
+  package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DFCKFFT_BUILD_TESTS=OFF -DFCKFFT_BUILD_BENCHMARKS=OFF
+      - run: cmake --install build --prefix "$RUNNER_TEMP/prefix"
+      - run: cmake -S tests/package -B build-package -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/prefix"
+      - run: cmake --build build-package
+      - run: ./build-package/fckfft_package_test
+
   windows:
     runs-on: windows-latest
     strategy:
