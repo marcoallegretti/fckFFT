@@ -3,6 +3,8 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 
 #if defined(_MSC_VER) && !defined(__clang__)
 #define FCKFFT_INLINE __forceinline
@@ -99,9 +101,50 @@ struct ScalarOps
     static FCKFFT_INLINE V recip(V a) { return 1.0f / a; }
     static FCKFFT_INLINE V rsqrt(V a) { return 1.0f / sqrt(a); }
     static FCKFFT_INLINE V abs(V a) { return std::fabs(a); }
+#if defined(__ARM_FP) && (__ARM_FP & 4) && !defined(__aarch64__) && (defined(__GNUC__) || defined(__clang__))
     static FCKFFT_INLINE V min(V a, V b) { return std::fmin(a, b); }
     static FCKFFT_INLINE V max(V a, V b) { return std::fmax(a, b); }
-    static FCKFFT_INLINE V selectGe(V a, V b, V t, V f) { return a >= b ? t : f; }
+#if defined(__ARM_ARCH) && __ARM_ARCH >= 8
+    static FCKFFT_INLINE V selectGe(V a, V b, V t, V f)
+    {
+        V r;
+        __asm__("vcmp.f32 %1, %2\n\t"
+                "vmrs APSR_nzcv, fpscr\n\t"
+                "vselge.f32 %0, %3, %4"
+                : "=t"(r)
+                : "t"(a), "t"(b), "t"(t), "t"(f)
+                : "cc");
+        return r;
+    }
+#else
+    static FCKFFT_INLINE V selectGe(V a, V b, V t, V f)
+    {
+        V r = f;
+        __asm__("vcmp.f32 %1, %2\n\t"
+                "vmrs APSR_nzcv, fpscr\n\t"
+                "it ge\n\t"
+                "vmovge.f32 %0, %3"
+                : "+t"(r)
+                : "t"(a), "t"(b), "t"(t)
+                : "cc");
+        return r;
+    }
+#endif
+#else
+    static FCKFFT_INLINE V selectGe(V a, V b, V t, V f)
+    {
+        const std::uint32_t mask = 0u - static_cast<std::uint32_t>(a >= b);
+        std::uint32_t tb, fb;
+        std::memcpy(&tb, &t, sizeof tb);
+        std::memcpy(&fb, &f, sizeof fb);
+        const std::uint32_t rb = (tb & mask) | (fb & ~mask);
+        V r;
+        std::memcpy(&r, &rb, sizeof r);
+        return r;
+    }
+    static FCKFFT_INLINE V min(V a, V b) { return selectGe(a, b, b, a); }
+    static FCKFFT_INLINE V max(V a, V b) { return selectGe(a, b, a, b); }
+#endif
     static FCKFFT_INLINE float reduceMax(V a) { return a; }
 };
 
