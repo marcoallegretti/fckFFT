@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <type_traits>
 #include <utility>
 #include <limits>
@@ -366,4 +367,57 @@ TEST_CASE(bank_move_and_contract)
     assigned = std::move(channels[0]);
     CHECK(assigned.isInitialized() && !channels[0].isInitialized());
     CHECK_NEAR(assigned.power(2), reference.power(2), 0.0);
+}
+
+TEST_CASE(bank_matches_double_model_on_random_configurations)
+{
+    std::uint32_t seed = 12345u;
+    const auto next = [&seed]() {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<double>(seed >> 8) / 16777216.0;
+    };
+    const double sr = 48000.0;
+    double worst = 0.0;
+    for (int trial = 0; trial < 120; ++trial)
+    {
+        const std::size_t n = 1 + static_cast<std::size_t>(next() * 40.0);
+        std::vector<float> f(n), a(n), b(n);
+        for (std::size_t k = 0; k < n; ++k)
+        {
+            const double r = next();
+            f[k] = r < 0.05 ? 0.0f : (r > 0.95 ? static_cast<float>(sr / 2) : static_cast<float>(next() * sr / 2));
+            a[k] = static_cast<float>(std::pow(10.0, -3.0 * next()));
+            b[k] = static_cast<float>(std::pow(10.0, -3.0 * next()));
+        }
+        const std::size_t length = 2000 + static_cast<std::size_t>(next() * 2000.0);
+        const std::size_t stride = 1 + static_cast<std::size_t>(next() * 3.0);
+        std::vector<float> x(length * stride);
+        for (float& v : x)
+            v = static_cast<float>(2.0 * next() - 1.0);
+        fckfft::DynamicResonatorBank bank;
+        CHECK(bank.init(f.data(), a.data(), b.data(), n, static_cast<float>(sr)));
+        for (std::size_t i = 0; i < length;)
+        {
+            const std::size_t block = std::min<std::size_t>(length - i, 1 + static_cast<std::size_t>(next() * 300.0));
+            bank.process(x.data() + i * stride, block, stride);
+            i += block;
+        }
+        for (std::size_t k = 0; k < n; ++k)
+        {
+            const double omega = -2.0 * signals::kPi * static_cast<double>(f[k]) / sr;
+            double rr = 0.0, ri = 0.0, sr2 = 0.0, si = 0.0;
+            for (std::size_t i = 0; i < length; ++i)
+            {
+                const double s = x[i * stride];
+                const double phase = omega * static_cast<double>(i);
+                rr += a[k] * (s * std::cos(phase) - rr);
+                ri += a[k] * (s * std::sin(phase) - ri);
+                sr2 += b[k] * (rr - sr2);
+                si += b[k] * (ri - si);
+            }
+            const double error = std::fabs(static_cast<double>(bank.magnitude(k)) - std::hypot(sr2, si));
+            worst = std::max(worst, error);
+        }
+    }
+    CHECK_NEAR(worst, 0.0, 1e-5);
 }
