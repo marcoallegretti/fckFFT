@@ -1,5 +1,7 @@
 #include <algorithm>
 #include <cmath>
+#include <type_traits>
+#include <utility>
 #include <limits>
 #include <string>
 #include <vector>
@@ -331,4 +333,37 @@ TEST_CASE(bank_recovers_from_non_finite_input)
         for (std::size_t k = 0; k < f.size(); ++k)
             CHECK_NEAR(bank.value(k).re, clean.value(k).re, 0.0);
     }
+}
+
+TEST_CASE(bank_move_and_contract)
+{
+    static_assert(std::is_nothrow_move_constructible<fckfft::DynamicResonatorBank>::value, "dynamic banks move without throwing");
+    static_assert(std::is_nothrow_move_assignable<fckfft::DynamicResonatorBank>::value, "dynamic banks move-assign without throwing");
+    static_assert(!std::is_copy_constructible<fckfft::DynamicResonatorBank>::value, "banks are not copyable");
+    static_assert(!std::is_move_constructible<fckfft::StaticResonatorBank<4>>::value, "static banks own inline storage");
+    static_assert(noexcept(std::declval<fckfft::DynamicResonatorBank&>().process(nullptr, 0)), "process does not throw");
+    const float f[4] = {220.0f, 330.0f, 440.0f, 660.0f};
+    const std::vector<float> x = signals::tone(4800, 48000.0, 440.0);
+    fckfft::DynamicResonatorBank reference;
+    CHECK(reference.init(f, 4, 48000.0f));
+    reference.process(x.data(), x.size());
+    std::vector<fckfft::DynamicResonatorBank> channels;
+    for (int c = 0; c < 3; ++c)
+    {
+        fckfft::DynamicResonatorBank bank;
+        CHECK(bank.init(f, 4, 48000.0f));
+        channels.push_back(std::move(bank));
+        CHECK(!bank.isInitialized());
+        bank.process(x.data(), x.size());
+    }
+    for (auto& bank : channels)
+    {
+        bank.process(x.data(), x.size());
+        for (std::size_t k = 0; k < 4; ++k)
+            CHECK_NEAR(bank.power(k), reference.power(k), 0.0);
+    }
+    fckfft::DynamicResonatorBank assigned;
+    assigned = std::move(channels[0]);
+    CHECK(assigned.isInitialized() && !channels[0].isInitialized());
+    CHECK_NEAR(assigned.power(2), reference.power(2), 0.0);
 }

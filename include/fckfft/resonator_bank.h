@@ -169,7 +169,7 @@ public:
     static constexpr std::size_t kLanes = Kernel::kLanes;
     static constexpr std::size_t kNormalizeInterval = 128;
 
-    static constexpr std::size_t storageSize(std::size_t numResonators)
+    static constexpr std::size_t storageSize(std::size_t numResonators) noexcept
     {
         return ((numResonators + kLanes - 1) / kLanes) * Kernel::kGroupFloats + 3 * numResonators;
     }
@@ -177,26 +177,34 @@ public:
     ResonatorBank() = default;
     ResonatorBank(const ResonatorBank&) = delete;
     ResonatorBank& operator=(const ResonatorBank&) = delete;
+    ResonatorBank(ResonatorBank&& other) noexcept { take(other); }
+
+    ResonatorBank& operator=(ResonatorBank&& other) noexcept
+    {
+        if (this != &other)
+            take(other);
+        return *this;
+    }
 
     bool init(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
-              const float* betas, std::size_t count, float sampleRate)
+              const float* betas, std::size_t count, float sampleRate) noexcept
     {
         return initImpl(storage, storageCount, frequencies, alphas, betas, count, sampleRate);
     }
 
     bool init(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
-              std::size_t count, float sampleRate)
+              std::size_t count, float sampleRate) noexcept
     {
         return initImpl(storage, storageCount, frequencies, alphas, alphas, count, sampleRate);
     }
 
     bool init(float* storage, std::size_t storageCount, const float* frequencies, std::size_t count,
-              float sampleRate)
+              float sampleRate) noexcept
     {
         return initImpl(storage, storageCount, frequencies, nullptr, nullptr, count, sampleRate);
     }
 
-    void reset()
+    void reset() noexcept
     {
         for (std::size_t k = 0; k < paddedSize(); ++k)
         {
@@ -210,7 +218,7 @@ public:
         sinceNormalize_ = 0;
     }
 
-    void process(const float* input, std::size_t numSamples, std::size_t stride = 1)
+    void process(const float* input, std::size_t numSamples, std::size_t stride = 1) noexcept
     {
         if (numGroups_ == 0 || numSamples == 0)
             return;
@@ -227,17 +235,17 @@ public:
         }
     }
 
-    void process(float sample) { process(&sample, 1, 1); }
+    void process(float sample) noexcept { process(&sample, 1, 1); }
 
-    bool isInitialized() const { return numGroups_ != 0; }
-    std::size_t size() const { return size_; }
-    float sampleRate() const { return sampleRate_; }
-    float frequency(std::size_t k) const { return info_[k]; }
-    float alpha(std::size_t k) const { return info_[size_ + k]; }
-    float beta(std::size_t k) const { return info_[2 * size_ + k]; }
-    float timeConstant(std::size_t k) const { return timeConstantFromAlpha(alpha(k), sampleRate_); }
+    bool isInitialized() const noexcept { return numGroups_ != 0; }
+    std::size_t size() const noexcept { return size_; }
+    float sampleRate() const noexcept { return sampleRate_; }
+    float frequency(std::size_t k) const noexcept { return info_[k]; }
+    float alpha(std::size_t k) const noexcept { return info_[size_ + k]; }
+    float beta(std::size_t k) const noexcept { return info_[2 * size_ + k]; }
+    float timeConstant(std::size_t k) const noexcept { return timeConstantFromAlpha(alpha(k), sampleRate_); }
 
-    bool setAlpha(std::size_t k, float a)
+    bool setAlpha(std::size_t k, float a) noexcept
     {
         if (k >= size_ || !detail::inUnitInterval(a))
             return false;
@@ -249,7 +257,7 @@ public:
         return true;
     }
 
-    bool setBeta(std::size_t k, float b)
+    bool setBeta(std::size_t k, float b) noexcept
     {
         if (k >= size_ || !detail::inUnitInterval(b))
             return false;
@@ -258,7 +266,7 @@ public:
         return true;
     }
 
-    bool setFrequency(std::size_t k, float f)
+    bool setFrequency(std::size_t k, float f) noexcept
     {
         if (k >= size_ || !detail::validFrequency(f, sampleRate_))
             return false;
@@ -267,55 +275,70 @@ public:
         return true;
     }
 
-    Complex value(std::size_t k) const { return Complex{field(k, Kernel::kSr), field(k, Kernel::kSi)}; }
+    Complex value(std::size_t k) const noexcept { return Complex{field(k, Kernel::kSr), field(k, Kernel::kSi)}; }
 
-    float power(std::size_t k) const
+    float power(std::size_t k) const noexcept
     {
         const float re = field(k, Kernel::kSr), im = field(k, Kernel::kSi);
         return re * re + im * im;
     }
 
-    float magnitude(std::size_t k) const { return std::sqrt(power(k)); }
-    float phase(std::size_t k) const { return std::atan2(field(k, Kernel::kSi), field(k, Kernel::kSr)); }
+    float magnitude(std::size_t k) const noexcept { return std::sqrt(power(k)); }
+    float phase(std::size_t k) const noexcept { return std::atan2(field(k, Kernel::kSi), field(k, Kernel::kSr)); }
 
-    void values(Complex* out) const
+    void values(Complex* out) const noexcept
     {
         for (std::size_t k = 0; k < size_; ++k)
             out[k] = value(k);
     }
 
-    void powers(float* out) const
+    void powers(float* out) const noexcept
     {
         for (std::size_t k = 0; k < size_; ++k)
             out[k] = power(k);
     }
 
-    void magnitudes(float* out) const
+    void magnitudes(float* out) const noexcept
     {
         for (std::size_t k = 0; k < size_; ++k)
             out[k] = magnitude(k);
     }
 
-    void phases(float* out) const
+    void phases(float* out) const noexcept
     {
         for (std::size_t k = 0; k < size_; ++k)
             out[k] = phase(k);
     }
 
 private:
-    std::size_t paddedSize() const { return numGroups_ * kLanes; }
+    void take(ResonatorBank& other) noexcept
+    {
+        groups_ = other.groups_;
+        info_ = other.info_;
+        size_ = other.size_;
+        numGroups_ = other.numGroups_;
+        sinceNormalize_ = other.sinceNormalize_;
+        sampleRate_ = other.sampleRate_;
+        other.groups_ = nullptr;
+        other.info_ = nullptr;
+        other.size_ = 0;
+        other.numGroups_ = 0;
+        other.sinceNormalize_ = 0;
+    }
 
-    float& field(std::size_t k, int f)
+    std::size_t paddedSize() const noexcept { return numGroups_ * kLanes; }
+
+    float& field(std::size_t k, int f) noexcept
     {
         return groups_[(k / kLanes) * Kernel::kGroupFloats + static_cast<std::size_t>(f) * kLanes + k % kLanes];
     }
 
-    const float& field(std::size_t k, int f) const
+    const float& field(std::size_t k, int f) const noexcept
     {
         return groups_[(k / kLanes) * Kernel::kGroupFloats + static_cast<std::size_t>(f) * kLanes + k % kLanes];
     }
 
-    void writeCoefficients(std::size_t k)
+    void writeCoefficients(std::size_t k) noexcept
     {
         const float a = alpha(k), b = beta(k);
         field(k, Kernel::kOa) = 1.0f - a;
@@ -324,7 +347,7 @@ private:
     }
 
     bool initImpl(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
-                  const float* betas, std::size_t count, float sampleRate)
+                  const float* betas, std::size_t count, float sampleRate) noexcept
     {
         numGroups_ = 0;
         size_ = 0;
@@ -380,18 +403,22 @@ class StaticResonatorBank : public ResonatorBank
 public:
     static constexpr std::size_t kCapacity = MaxResonators;
 
-    bool init(const float* frequencies, const float* alphas, const float* betas, std::size_t count, float sampleRate)
+    StaticResonatorBank() = default;
+    StaticResonatorBank(StaticResonatorBank&&) = delete;
+    StaticResonatorBank& operator=(StaticResonatorBank&&) = delete;
+
+    bool init(const float* frequencies, const float* alphas, const float* betas, std::size_t count, float sampleRate) noexcept
     {
         return count <= MaxResonators
                && ResonatorBank::init(storage_, kStorage, frequencies, alphas, betas, count, sampleRate);
     }
 
-    bool init(const float* frequencies, const float* alphas, std::size_t count, float sampleRate)
+    bool init(const float* frequencies, const float* alphas, std::size_t count, float sampleRate) noexcept
     {
         return count <= MaxResonators && ResonatorBank::init(storage_, kStorage, frequencies, alphas, count, sampleRate);
     }
 
-    bool init(const float* frequencies, std::size_t count, float sampleRate)
+    bool init(const float* frequencies, std::size_t count, float sampleRate) noexcept
     {
         return count <= MaxResonators && ResonatorBank::init(storage_, kStorage, frequencies, count, sampleRate);
     }
@@ -425,7 +452,7 @@ private:
 };
 
 inline std::size_t analyze(ResonatorBank& bank, const float* signal, std::size_t numSamples, std::size_t hop,
-                           Complex* frames)
+                           Complex* frames) noexcept
 {
     if (hop == 0)
         return 0;

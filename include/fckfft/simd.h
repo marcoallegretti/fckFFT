@@ -71,9 +71,9 @@ private:
 #if defined(FCKFFT_X86_MXCSR)
     unsigned int saved_;
 #elif defined(__aarch64__) && (defined(__GNUC__) || defined(__clang__))
-    unsigned long long saved_;
+    unsigned long long saved_ = 0;
 #elif defined(__arm__) && defined(__ARM_FP) && (defined(__GNUC__) || defined(__clang__))
-    unsigned int saved_;
+    unsigned int saved_ = 0;
 #endif
 };
 

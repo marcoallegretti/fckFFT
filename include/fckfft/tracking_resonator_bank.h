@@ -224,7 +224,7 @@ public:
     static constexpr std::size_t kSanitizeEvery = 4;
     static constexpr float kInitialAccumulatedPower = 0.0001f;
 
-    static constexpr std::size_t storageSize(std::size_t numResonators)
+    static constexpr std::size_t storageSize(std::size_t numResonators) noexcept
     {
         return ((numResonators + kLanes - 1) / kLanes) * Kernel::kGroupFloats + 4 * numResonators;
     }
@@ -232,23 +232,31 @@ public:
     TrackingResonatorBank() = default;
     TrackingResonatorBank(const TrackingResonatorBank&) = delete;
     TrackingResonatorBank& operator=(const TrackingResonatorBank&) = delete;
+    TrackingResonatorBank(TrackingResonatorBank&& other) noexcept { take(other); }
+
+    TrackingResonatorBank& operator=(TrackingResonatorBank&& other) noexcept
+    {
+        if (this != &other)
+            take(other);
+        return *this;
+    }
 
     bool init(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
               const float* betas, const float* gammas, std::size_t count, float sampleRate,
-              TrackingRule rule = TrackingRule::ewma, float thresholdDb = -60.0f)
+              TrackingRule rule = TrackingRule::ewma, float thresholdDb = -60.0f) noexcept
     {
         return initImpl(storage, storageCount, frequencies, alphas, betas, gammas, count, sampleRate, rule,
                         thresholdDb);
     }
 
     bool init(float* storage, std::size_t storageCount, const float* frequencies, std::size_t count, float sampleRate,
-              TrackingRule rule = TrackingRule::ewma, float thresholdDb = -60.0f)
+              TrackingRule rule = TrackingRule::ewma, float thresholdDb = -60.0f) noexcept
     {
         return initImpl(storage, storageCount, frequencies, nullptr, nullptr, nullptr, count, sampleRate, rule,
                         thresholdDb);
     }
 
-    void reset()
+    void reset() noexcept
     {
         for (std::size_t k = 0; k < paddedSize(); ++k)
         {
@@ -271,7 +279,7 @@ public:
         renormalizations_ = 0;
     }
 
-    void process(const float* input, std::size_t numSamples, std::size_t stride = 1)
+    void process(const float* input, std::size_t numSamples, std::size_t stride = 1) noexcept
     {
         if (numGroups_ == 0 || numSamples == 0)
             return;
@@ -294,20 +302,20 @@ public:
         }
     }
 
-    void process(float sample) { process(&sample, 1, 1); }
+    void process(float sample) noexcept { process(&sample, 1, 1); }
 
-    bool isInitialized() const { return numGroups_ != 0; }
-    std::size_t size() const { return size_; }
-    float sampleRate() const { return sampleRate_; }
-    TrackingRule rule() const { return rule_; }
-    float thresholdDb() const { return static_cast<float>(10.0 * std::log10(static_cast<double>(ratio_))); }
-    float accumulatedPower() const { return accPower_; }
-    float naturalFrequency(std::size_t k) const { return info_[k]; }
-    float alpha(std::size_t k) const { return info_[size_ + k]; }
-    float beta(std::size_t k) const { return info_[2 * size_ + k]; }
-    float gamma(std::size_t k) const { return info_[3 * size_ + k]; }
+    bool isInitialized() const noexcept { return numGroups_ != 0; }
+    std::size_t size() const noexcept { return size_; }
+    float sampleRate() const noexcept { return sampleRate_; }
+    TrackingRule rule() const noexcept { return rule_; }
+    float thresholdDb() const noexcept { return static_cast<float>(10.0 * std::log10(static_cast<double>(ratio_))); }
+    float accumulatedPower() const noexcept { return accPower_; }
+    float naturalFrequency(std::size_t k) const noexcept { return info_[k]; }
+    float alpha(std::size_t k) const noexcept { return info_[size_ + k]; }
+    float beta(std::size_t k) const noexcept { return info_[2 * size_ + k]; }
+    float gamma(std::size_t k) const noexcept { return info_[3 * size_ + k]; }
 
-    void setRule(TrackingRule rule)
+    void setRule(TrackingRule rule) noexcept
     {
         rule_ = rule;
         if (rule == TrackingRule::none)
@@ -318,14 +326,14 @@ public:
             }
     }
 
-    void setThresholdDb(float db) { ratio_ = static_cast<float>(std::pow(10.0, static_cast<double>(db) / 10.0)); }
+    void setThresholdDb(float db) noexcept { ratio_ = static_cast<float>(std::pow(10.0, static_cast<double>(db) / 10.0)); }
 
-    void setPowerTimeConstant(float seconds)
+    void setPowerTimeConstant(float seconds) noexcept
     {
         sigma_ = seconds > 0.0f ? alphaFromTimeConstant(seconds, sampleRate_) : 1.0f;
     }
 
-    bool setGamma(std::size_t k, float g)
+    bool setGamma(std::size_t k, float g) noexcept
     {
         if (k >= size_ || !(g >= 0.0f && g <= 1.0f))
             return false;
@@ -335,67 +343,88 @@ public:
         return true;
     }
 
-    Complex value(std::size_t k) const { return Complex{field(k, Kernel::kSr), field(k, Kernel::kSi)}; }
+    Complex value(std::size_t k) const noexcept { return Complex{field(k, Kernel::kSr), field(k, Kernel::kSi)}; }
 
-    float power(std::size_t k) const
+    float power(std::size_t k) const noexcept
     {
         const float re = field(k, Kernel::kSr), im = field(k, Kernel::kSi);
         return re * re + im * im;
     }
 
-    float magnitude(std::size_t k) const { return std::sqrt(power(k)); }
-    float phase(std::size_t k) const { return std::atan2(field(k, Kernel::kSi), field(k, Kernel::kSr)); }
-    float deltaPhase(std::size_t k) const { return -std::atan2(field(k, Kernel::kQi), field(k, Kernel::kQr)); }
+    float magnitude(std::size_t k) const noexcept { return std::sqrt(power(k)); }
+    float phase(std::size_t k) const noexcept { return std::atan2(field(k, Kernel::kSi), field(k, Kernel::kSr)); }
+    float deltaPhase(std::size_t k) const noexcept { return -std::atan2(field(k, Kernel::kQi), field(k, Kernel::kQr)); }
 
-    float resonantFrequency(std::size_t k) const
+    float resonantFrequency(std::size_t k) const noexcept
     {
         return static_cast<float>(-std::atan2(field(k, Kernel::kWi), field(k, Kernel::kWr)) * sampleRate_
                                   / detail::kTwoPi);
     }
 
-    float instantaneousFrequency(std::size_t k) const
+    float instantaneousFrequency(std::size_t k) const noexcept
     {
         return resonantFrequency(k) + static_cast<float>(deltaPhase(k) * sampleRate_ / detail::kTwoPi);
     }
 
-    void values(Complex* out) const
+    void values(Complex* out) const noexcept
     {
         for (std::size_t k = 0; k < size_; ++k)
             out[k] = value(k);
     }
 
-    void powers(float* out) const
+    void powers(float* out) const noexcept
     {
         for (std::size_t k = 0; k < size_; ++k)
             out[k] = power(k);
     }
 
-    void magnitudes(float* out) const
+    void magnitudes(float* out) const noexcept
     {
         for (std::size_t k = 0; k < size_; ++k)
             out[k] = magnitude(k);
     }
 
-    void phases(float* out) const
+    void phases(float* out) const noexcept
     {
         for (std::size_t k = 0; k < size_; ++k)
             out[k] = phase(k);
     }
 
-    void resonantFrequencies(float* out) const
+    void resonantFrequencies(float* out) const noexcept
     {
         for (std::size_t k = 0; k < size_; ++k)
             out[k] = resonantFrequency(k);
     }
 
-    void instantaneousFrequencies(float* out) const
+    void instantaneousFrequencies(float* out) const noexcept
     {
         for (std::size_t k = 0; k < size_; ++k)
             out[k] = instantaneousFrequency(k);
     }
 
 private:
-    void processChunk(const float* input, std::size_t n, std::size_t stride, bool renormalize)
+    void take(TrackingResonatorBank& other) noexcept
+    {
+        groups_ = other.groups_;
+        info_ = other.info_;
+        size_ = other.size_;
+        numGroups_ = other.numGroups_;
+        sinceNormalize_ = other.sinceNormalize_;
+        renormalizations_ = other.renormalizations_;
+        sampleRate_ = other.sampleRate_;
+        sigma_ = other.sigma_;
+        ratio_ = other.ratio_;
+        accPower_ = other.accPower_;
+        rule_ = other.rule_;
+        other.groups_ = nullptr;
+        other.info_ = nullptr;
+        other.size_ = 0;
+        other.numGroups_ = 0;
+        other.sinceNormalize_ = 0;
+        other.renormalizations_ = 0;
+    }
+
+    void processChunk(const float* input, std::size_t n, std::size_t stride, bool renormalize) noexcept
     {
         switch (rule_)
         {
@@ -418,21 +447,21 @@ private:
         }
     }
 
-    std::size_t paddedSize() const { return numGroups_ * kLanes; }
+    std::size_t paddedSize() const noexcept { return numGroups_ * kLanes; }
 
-    float& field(std::size_t k, int f)
+    float& field(std::size_t k, int f) noexcept
     {
         return groups_[(k / kLanes) * Kernel::kGroupFloats + static_cast<std::size_t>(f) * kLanes + k % kLanes];
     }
 
-    const float& field(std::size_t k, int f) const
+    const float& field(std::size_t k, int f) const noexcept
     {
         return groups_[(k / kLanes) * Kernel::kGroupFloats + static_cast<std::size_t>(f) * kLanes + k % kLanes];
     }
 
     bool initImpl(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
                   const float* betas, const float* gammas, std::size_t count, float sampleRate, TrackingRule rule,
-                  float thresholdDb)
+                  float thresholdDb) noexcept
     {
         numGroups_ = 0;
         size_ = 0;
@@ -506,8 +535,12 @@ class StaticTrackingResonatorBank : public TrackingResonatorBank
 public:
     static constexpr std::size_t kCapacity = MaxResonators;
 
+    StaticTrackingResonatorBank() = default;
+    StaticTrackingResonatorBank(StaticTrackingResonatorBank&&) = delete;
+    StaticTrackingResonatorBank& operator=(StaticTrackingResonatorBank&&) = delete;
+
     bool init(const float* frequencies, const float* alphas, const float* betas, const float* gammas,
-              std::size_t count, float sampleRate, TrackingRule rule = TrackingRule::ewma, float thresholdDb = -60.0f)
+              std::size_t count, float sampleRate, TrackingRule rule = TrackingRule::ewma, float thresholdDb = -60.0f) noexcept
     {
         return count <= MaxResonators
                && TrackingResonatorBank::init(storage_, kStorage, frequencies, alphas, betas, gammas, count,
@@ -515,7 +548,7 @@ public:
     }
 
     bool init(const float* frequencies, std::size_t count, float sampleRate, TrackingRule rule = TrackingRule::ewma,
-              float thresholdDb = -60.0f)
+              float thresholdDb = -60.0f) noexcept
     {
         return count <= MaxResonators
                && TrackingResonatorBank::init(storage_, kStorage, frequencies, count, sampleRate, rule, thresholdDb);
