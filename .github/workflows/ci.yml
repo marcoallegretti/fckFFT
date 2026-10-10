@@ -38,6 +38,14 @@ jobs:
       - run: cmake --build build --parallel
       - run: ctest --test-dir build --output-on-failure
 
+  fuzz:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_COMPILER=clang++ -DFCKFFT_BUILD_FUZZERS=ON -DFCKFFT_BUILD_TESTS=OFF -DFCKFFT_BUILD_BENCHMARKS=OFF
+      - run: cmake --build build --parallel
+      - run: mkdir corpus && ./build/fckfft_fuzz_banks -max_total_time=120 -max_len=8192 corpus
+
   windows:
     runs-on: windows-latest
     strategy:
