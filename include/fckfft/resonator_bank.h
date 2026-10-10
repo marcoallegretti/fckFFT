@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <type_traits>
 #include <vector>
 
 #include "dynamics.h"
@@ -43,122 +44,148 @@ struct BankKernel
     using V = typename Ops::V;
     enum Field
     {
-        kOa,
-        kOb,
-        kAb,
-        kWr,
-        kWi,
-        kZr,
-        kZi,
-        kUr,
-        kUi,
+        kCr,
+        kCi,
+        kDr,
+        kDi,
+        kVr,
+        kVi,
         kSr,
         kSi,
         kFields
     };
     static constexpr std::size_t kWidth = Ops::width;
-    static constexpr std::size_t kLanes = 2 * kWidth;
+    static constexpr std::size_t kPacks = 3;
+    static constexpr std::size_t kLanes = kPacks * kWidth;
     static constexpr std::size_t kGroupFloats = kFields * kLanes;
 
     struct Pack
     {
-        V oa, ob, ab, wr, wi, zr, zi, ur, ui, sr, si;
+        V cr[kPacks], ci[kPacks], dr[kPacks], di[kPacks], vr[kPacks], vi[kPacks], sr[kPacks], si[kPacks];
     };
+
+    static FCKFFT_INLINE void loadOne(Pack& p, std::size_t j, const float* g)
+    {
+        p.cr[j] = Ops::load(g + kCr * kLanes);
+        p.ci[j] = Ops::load(g + kCi * kLanes);
+        p.dr[j] = Ops::load(g + kDr * kLanes);
+        p.di[j] = Ops::load(g + kDi * kLanes);
+        p.vr[j] = Ops::load(g + kVr * kLanes);
+        p.vi[j] = Ops::load(g + kVi * kLanes);
+        p.sr[j] = Ops::load(g + kSr * kLanes);
+        p.si[j] = Ops::load(g + kSi * kLanes);
+    }
+
+    static FCKFFT_INLINE void storeOne(const Pack& p, std::size_t j, float* g)
+    {
+        Ops::store(g + kVr * kLanes, p.vr[j]);
+        Ops::store(g + kVi * kLanes, p.vi[j]);
+        Ops::store(g + kSr * kLanes, p.sr[j]);
+        Ops::store(g + kSi * kLanes, p.si[j]);
+    }
 
     static FCKFFT_INLINE void load(Pack& p, const float* g)
     {
-        p.oa = Ops::load(g + kOa * kLanes);
-        p.ob = Ops::load(g + kOb * kLanes);
-        p.ab = Ops::load(g + kAb * kLanes);
-        p.wr = Ops::load(g + kWr * kLanes);
-        p.wi = Ops::load(g + kWi * kLanes);
-        p.zr = Ops::load(g + kZr * kLanes);
-        p.zi = Ops::load(g + kZi * kLanes);
-        p.ur = Ops::load(g + kUr * kLanes);
-        p.ui = Ops::load(g + kUi * kLanes);
-        p.sr = Ops::load(g + kSr * kLanes);
-        p.si = Ops::load(g + kSi * kLanes);
+        loadOne(p, 0, g);
+        loadOne(p, 1, g + kWidth);
+        loadOne(p, 2, g + 2 * kWidth);
     }
 
     static FCKFFT_INLINE void store(const Pack& p, float* g)
     {
-        Ops::store(g + kZr * kLanes, p.zr);
-        Ops::store(g + kZi * kLanes, p.zi);
-        Ops::store(g + kUr * kLanes, p.ur);
-        Ops::store(g + kUi * kLanes, p.ui);
-        Ops::store(g + kSr * kLanes, p.sr);
-        Ops::store(g + kSi * kLanes, p.si);
+        storeOne(p, 0, g);
+        storeOne(p, 1, g + kWidth);
+        storeOne(p, 2, g + 2 * kWidth);
     }
 
-    static FCKFFT_INLINE void step(Pack& p, V s)
+    static FCKFFT_INLINE void stepOne(Pack& p, std::size_t j, V x, std::false_type)
     {
-        p.ur = Ops::madd(p.oa, p.ur, Ops::mul(s, p.zr));
-        p.ui = Ops::madd(p.oa, p.ui, Ops::mul(s, p.zi));
-        const V zr = Ops::nmadd(p.zi, p.wi, Ops::mul(p.zr, p.wr));
-        p.zi = Ops::madd(p.zr, p.wi, Ops::mul(p.zi, p.wr));
-        p.zr = zr;
-        p.sr = Ops::madd(p.ob, p.sr, Ops::mul(p.ab, p.ur));
-        p.si = Ops::madd(p.ob, p.si, Ops::mul(p.ab, p.ui));
+        const V t = Ops::nmadd(p.ci[j], p.vi[j], x);
+        p.vi[j] = Ops::madd(p.cr[j], p.vi[j], Ops::mul(p.ci[j], p.vr[j]));
+        p.vr[j] = Ops::madd(p.cr[j], p.vr[j], t);
+        const V u = Ops::nmadd(p.di[j], p.si[j], p.vr[j]);
+        p.si[j] = Ops::madd(p.dr[j], p.si[j], Ops::madd(p.di[j], p.sr[j], p.vi[j]));
+        p.sr[j] = Ops::madd(p.dr[j], p.sr[j], u);
     }
 
-    static FCKFFT_INLINE void normalize(Pack& p)
+    static FCKFFT_INLINE void stepOne(Pack& p, std::size_t j, V x, std::true_type)
     {
-        const V m = Ops::madd(p.zr, p.zr, Ops::mul(p.zi, p.zi));
-        const V k = Ops::nmadd(Ops::set(0.5f), m, Ops::set(1.5f));
-        p.zr = Ops::mul(p.zr, k);
-        p.zi = Ops::mul(p.zi, k);
+        const V vi = Ops::madd(p.cr[j], p.vi[j], Ops::mul(p.ci[j], p.vr[j]));
+        const V vr = Ops::sub(Ops::mul(p.cr[j], p.vr[j]), Ops::mul(p.ci[j], p.vi[j]));
+        p.vr[j] = Ops::add(vr, x);
+        p.vi[j] = vi;
+        const V si = Ops::madd(p.dr[j], p.si[j], Ops::mul(p.di[j], p.sr[j]));
+        const V sr = Ops::sub(Ops::mul(p.dr[j], p.sr[j]), Ops::mul(p.di[j], p.si[j]));
+        p.sr[j] = Ops::add(sr, p.vr[j]);
+        p.si[j] = Ops::add(si, p.vi[j]);
+    }
+
+    static FCKFFT_INLINE void step(Pack& p, V x)
+    {
+        const std::integral_constant<bool, kWidth == 1> scalar{};
+        stepOne(p, 0, x, scalar);
+        stepOne(p, 1, x, scalar);
+        stepOne(p, 2, x, scalar);
+    }
+
+    static FCKFFT_INLINE void sanitizeOne(Pack& p, std::size_t j)
+    {
         const V zero = Ops::set(0.0f);
-        V t = Ops::mul(p.zr, zero);
-        t = Ops::madd(p.zi, zero, t);
-        t = Ops::madd(p.ur, zero, t);
-        t = Ops::madd(p.ui, zero, t);
-        t = Ops::madd(p.sr, zero, t);
-        t = Ops::madd(p.si, zero, t);
-        p.zr = Ops::selectGe(t, zero, p.zr, Ops::set(1.0f));
-        p.zi = Ops::selectGe(t, zero, p.zi, zero);
-        p.ur = Ops::selectGe(t, zero, p.ur, zero);
-        p.ui = Ops::selectGe(t, zero, p.ui, zero);
-        p.sr = Ops::selectGe(t, zero, p.sr, zero);
-        p.si = Ops::selectGe(t, zero, p.si, zero);
+        V t = Ops::mul(p.vr[j], zero);
+        t = Ops::madd(p.vi[j], zero, t);
+        t = Ops::madd(p.sr[j], zero, t);
+        t = Ops::madd(p.si[j], zero, t);
+        p.vr[j] = Ops::selectGe(t, zero, p.vr[j], zero);
+        p.vi[j] = Ops::selectGe(t, zero, p.vi[j], zero);
+        p.sr[j] = Ops::selectGe(t, zero, p.sr[j], zero);
+        p.si[j] = Ops::selectGe(t, zero, p.si[j], zero);
+    }
+
+    static FCKFFT_INLINE void sanitize(Pack& p)
+    {
+        sanitizeOne(p, 0);
+        sanitizeOne(p, 1);
+        sanitizeOne(p, 2);
     }
 
     static void process(float* groups, std::size_t numGroups, const float* x, std::size_t n, std::size_t stride,
-                        bool renormalize)
+                        bool sanitizeAtEnd)
     {
         for (std::size_t g = 0; g < numGroups; ++g)
         {
             float* base = groups + g * kGroupFloats;
-            Pack a, b;
+            Pack a;
             load(a, base);
-            load(b, base + kWidth);
             const float* in = x;
             std::size_t i = 0;
             for (; i + 2 <= n; i += 2)
             {
-                const V s0 = Ops::set(in[0]);
-                const V s1 = Ops::set(in[stride]);
+                step(a, Ops::set(in[0]));
+                step(a, Ops::set(in[stride]));
                 in += 2 * stride;
-                step(a, s0);
-                step(b, s0);
-                step(a, s1);
-                step(b, s1);
             }
             if (i < n)
-            {
-                const V s0 = Ops::set(in[0]);
-                step(a, s0);
-                step(b, s0);
-            }
-            if (renormalize)
-            {
-                normalize(a);
-                normalize(b);
-            }
+                step(a, Ops::set(in[0]));
+            if (sanitizeAtEnd)
+                sanitize(a);
             store(a, base);
-            store(b, base + kWidth);
         }
     }
 };
+
+inline void rotation(double frequency, double sampleRate, unsigned long long samples, double& c, double& s)
+{
+    if (samples == 0)
+    {
+        c = 1.0;
+        s = 0.0;
+        return;
+    }
+    const double turns = std::fmod(frequency * static_cast<double>(samples - 1), sampleRate) / sampleRate;
+    const float theta = static_cast<float>(-kTwoPi * (turns > 0.5 ? turns - 1.0 : turns));
+    c = std::cos(theta);
+    s = std::sin(theta);
+}
 
 }
 
@@ -167,11 +194,11 @@ class ResonatorBank
 public:
     using Kernel = detail::BankKernel<simd::NativeOps>;
     static constexpr std::size_t kLanes = Kernel::kLanes;
-    static constexpr std::size_t kNormalizeInterval = 128;
+    static constexpr std::size_t kRecoveryInterval = 128;
 
     static constexpr std::size_t storageSize(std::size_t numResonators) noexcept
     {
-        return ((numResonators + kLanes - 1) / kLanes) * Kernel::kGroupFloats + 3 * numResonators;
+        return ((numResonators + kLanes - 1) / kLanes) * Kernel::kGroupFloats + 4 * numResonators;
     }
 
     ResonatorBank() = default;
@@ -208,14 +235,13 @@ public:
     {
         for (std::size_t k = 0; k < paddedSize(); ++k)
         {
-            field(k, Kernel::kZr) = 1.0f;
-            field(k, Kernel::kZi) = 0.0f;
-            field(k, Kernel::kUr) = 0.0f;
-            field(k, Kernel::kUi) = 0.0f;
+            field(k, Kernel::kVr) = 0.0f;
+            field(k, Kernel::kVi) = 0.0f;
             field(k, Kernel::kSr) = 0.0f;
             field(k, Kernel::kSi) = 0.0f;
         }
-        sinceNormalize_ = 0;
+        processed_ = 0;
+        sinceCheck_ = 0;
     }
 
     void process(const float* input, std::size_t numSamples, std::size_t stride = 1) noexcept
@@ -223,13 +249,14 @@ public:
         if (numGroups_ == 0 || numSamples == 0)
             return;
         const simd::ScopedFlushDenormals ftz;
+        processed_ += numSamples;
         while (numSamples > 0)
         {
-            const std::size_t due = kNormalizeInterval - sinceNormalize_;
+            const std::size_t due = kRecoveryInterval - sinceCheck_;
             const std::size_t n = numSamples < due ? numSamples : due;
-            const bool renormalize = n == due;
-            Kernel::process(groups_, numGroups_, input, n, stride, renormalize);
-            sinceNormalize_ = renormalize ? 0 : sinceNormalize_ + n;
+            const bool check = n == due;
+            Kernel::process(groups_, numGroups_, input, n, stride, check);
+            sinceCheck_ = check ? 0 : sinceCheck_ + n;
             input += n * stride;
             numSamples -= n;
         }
@@ -240,6 +267,7 @@ public:
     bool isInitialized() const noexcept { return numGroups_ != 0; }
     std::size_t size() const noexcept { return size_; }
     float sampleRate() const noexcept { return sampleRate_; }
+    unsigned long long samplesProcessed() const noexcept { return processed_; }
     float frequency(std::size_t k) const noexcept { return info_[k]; }
     float alpha(std::size_t k) const noexcept { return info_[size_ + k]; }
     float beta(std::size_t k) const noexcept { return info_[2 * size_ + k]; }
@@ -249,11 +277,14 @@ public:
     {
         if (k >= size_ || !detail::inUnitInterval(a))
             return false;
-        const float old = alpha(k);
-        field(k, Kernel::kUr) *= old / a;
-        field(k, Kernel::kUi) *= old / a;
+        const double before = effectiveAlpha(k);
         info_[size_ + k] = a;
         writeCoefficients(k);
+        const float ratio = static_cast<float>(before / effectiveAlpha(k));
+        field(k, Kernel::kVr) *= ratio;
+        field(k, Kernel::kVi) *= ratio;
+        field(k, Kernel::kSr) *= ratio;
+        field(k, Kernel::kSi) *= ratio;
         return true;
     }
 
@@ -261,8 +292,12 @@ public:
     {
         if (k >= size_ || !detail::inUnitInterval(b))
             return false;
+        const double before = effectiveBeta(k);
         info_[2 * size_ + k] = b;
         writeCoefficients(k);
+        const float ratio = static_cast<float>(before / effectiveBeta(k));
+        field(k, Kernel::kSr) *= ratio;
+        field(k, Kernel::kSi) *= ratio;
         return true;
     }
 
@@ -271,20 +306,38 @@ public:
         if (k >= size_ || !detail::validFrequency(f, sampleRate_))
             return false;
         info_[k] = f;
-        detail::phasorStep(f, sampleRate_, field(k, Kernel::kWr), field(k, Kernel::kWi));
+        writeCoefficients(k);
         return true;
     }
 
-    Complex value(std::size_t k) const noexcept { return Complex{field(k, Kernel::kSr), field(k, Kernel::kSi)}; }
+    Complex value(std::size_t k) const noexcept
+    {
+        double c, s;
+        detail::rotation(info_[k], sampleRate_, processed_, c, s);
+        const double scale = info_[3 * size_ + k];
+        const double re = scale * field(k, Kernel::kSr), im = scale * field(k, Kernel::kSi);
+        return Complex{static_cast<float>(re * c - im * s), static_cast<float>(re * s + im * c)};
+    }
 
     float power(std::size_t k) const noexcept
     {
-        const float re = field(k, Kernel::kSr), im = field(k, Kernel::kSi);
-        return re * re + im * im;
+        const double scale = info_[3 * size_ + k];
+        const double re = scale * field(k, Kernel::kSr), im = scale * field(k, Kernel::kSi);
+        return static_cast<float>(re * re + im * im);
     }
 
-    float magnitude(std::size_t k) const noexcept { return std::sqrt(power(k)); }
-    float phase(std::size_t k) const noexcept { return std::atan2(field(k, Kernel::kSi), field(k, Kernel::kSr)); }
+    float magnitude(std::size_t k) const noexcept
+    {
+        const double scale = info_[3 * size_ + k];
+        return static_cast<float>(scale * std::hypot(static_cast<double>(field(k, Kernel::kSr)),
+                                                     static_cast<double>(field(k, Kernel::kSi))));
+    }
+
+    float phase(std::size_t k) const noexcept
+    {
+        const Complex v = value(k);
+        return std::atan2(v.im, v.re);
+    }
 
     void values(Complex* out) const noexcept
     {
@@ -317,13 +370,15 @@ private:
         info_ = other.info_;
         size_ = other.size_;
         numGroups_ = other.numGroups_;
-        sinceNormalize_ = other.sinceNormalize_;
+        processed_ = other.processed_;
+        sinceCheck_ = other.sinceCheck_;
         sampleRate_ = other.sampleRate_;
         other.groups_ = nullptr;
         other.info_ = nullptr;
         other.size_ = 0;
         other.numGroups_ = 0;
-        other.sinceNormalize_ = 0;
+        other.processed_ = 0;
+        other.sinceCheck_ = 0;
     }
 
     std::size_t paddedSize() const noexcept { return numGroups_ * kLanes; }
@@ -338,12 +393,26 @@ private:
         return groups_[(k / kLanes) * Kernel::kGroupFloats + static_cast<std::size_t>(f) * kLanes + k % kLanes];
     }
 
+    double effectiveAlpha(std::size_t k) const noexcept
+    {
+        return 1.0 - std::hypot(static_cast<double>(field(k, Kernel::kCr)), static_cast<double>(field(k, Kernel::kCi)));
+    }
+
+    double effectiveBeta(std::size_t k) const noexcept
+    {
+        return 1.0 - std::hypot(static_cast<double>(field(k, Kernel::kDr)), static_cast<double>(field(k, Kernel::kDi)));
+    }
+
     void writeCoefficients(std::size_t k) noexcept
     {
-        const float a = alpha(k), b = beta(k);
-        field(k, Kernel::kOa) = 1.0f - a;
-        field(k, Kernel::kOb) = 1.0f - b;
-        field(k, Kernel::kAb) = a * b;
+        const double omega = -detail::kTwoPi * static_cast<double>(frequency(k)) / static_cast<double>(sampleRate_);
+        const double c = std::cos(omega), s = -std::sin(omega);
+        const double ra = 1.0 - static_cast<double>(alpha(k)), rb = 1.0 - static_cast<double>(beta(k));
+        field(k, Kernel::kCr) = static_cast<float>(ra * c);
+        field(k, Kernel::kCi) = static_cast<float>(ra * s);
+        field(k, Kernel::kDr) = static_cast<float>(rb * c);
+        field(k, Kernel::kDi) = static_cast<float>(rb * s);
+        info_[3 * size_ + k] = static_cast<float>(effectiveAlpha(k) * effectiveBeta(k));
     }
 
     bool initImpl(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
@@ -369,13 +438,8 @@ private:
         numGroups_ = numGroups;
         sampleRate_ = sampleRate;
         for (std::size_t k = 0; k < paddedSize(); ++k)
-        {
-            field(k, Kernel::kOa) = 0.0f;
-            field(k, Kernel::kOb) = 1.0f;
-            field(k, Kernel::kAb) = 0.0f;
-            field(k, Kernel::kWr) = 1.0f;
-            field(k, Kernel::kWi) = 0.0f;
-        }
+            for (int f = 0; f < Kernel::kFields; ++f)
+                field(k, f) = 0.0f;
         for (std::size_t k = 0; k < count; ++k)
         {
             const float a = alphas != nullptr ? alphas[k] : heuristicAlpha(frequencies[k], sampleRate);
@@ -383,7 +447,6 @@ private:
             info_[count + k] = a;
             info_[2 * count + k] = betas != nullptr ? betas[k] : a;
             writeCoefficients(k);
-            detail::phasorStep(frequencies[k], sampleRate, field(k, Kernel::kWr), field(k, Kernel::kWi));
         }
         reset();
         return true;
@@ -393,7 +456,8 @@ private:
     float* info_ = nullptr;
     std::size_t size_ = 0;
     std::size_t numGroups_ = 0;
-    std::size_t sinceNormalize_ = 0;
+    unsigned long long processed_ = 0;
+    std::size_t sinceCheck_ = 0;
     float sampleRate_ = 0.0f;
 };
 

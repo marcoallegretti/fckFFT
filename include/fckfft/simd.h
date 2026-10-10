@@ -84,6 +84,7 @@ struct ScalarOps
     static FCKFFT_INLINE V load(const float* p) { return *p; }
     static FCKFFT_INLINE void store(float* p, V v) { *p = v; }
     static FCKFFT_INLINE V set(float x) { return x; }
+    static FCKFFT_INLINE V add(V a, V b) { return a + b; }
     static FCKFFT_INLINE V sub(V a, V b) { return a - b; }
     static FCKFFT_INLINE V mul(V a, V b) { return a * b; }
     static FCKFFT_INLINE V madd(V a, V b, V c) { return a * b + c; }
@@ -156,6 +157,7 @@ struct NativeOps
     static FCKFFT_INLINE V load(const float* p) { return _mm512_loadu_ps(p); }
     static FCKFFT_INLINE void store(float* p, V v) { _mm512_storeu_ps(p, v); }
     static FCKFFT_INLINE V set(float x) { return _mm512_set1_ps(x); }
+    static FCKFFT_INLINE V add(V a, V b) { return _mm512_add_ps(a, b); }
     static FCKFFT_INLINE V sub(V a, V b) { return _mm512_sub_ps(a, b); }
     static FCKFFT_INLINE V mul(V a, V b) { return _mm512_mul_ps(a, b); }
     static FCKFFT_INLINE V madd(V a, V b, V c) { return _mm512_fmadd_ps(a, b, c); }
@@ -185,6 +187,7 @@ struct NativeOps
     static FCKFFT_INLINE V load(const float* p) { return _mm256_loadu_ps(p); }
     static FCKFFT_INLINE void store(float* p, V v) { _mm256_storeu_ps(p, v); }
     static FCKFFT_INLINE V set(float x) { return _mm256_set1_ps(x); }
+    static FCKFFT_INLINE V add(V a, V b) { return _mm256_add_ps(a, b); }
     static FCKFFT_INLINE V sub(V a, V b) { return _mm256_sub_ps(a, b); }
     static FCKFFT_INLINE V mul(V a, V b) { return _mm256_mul_ps(a, b); }
 #if defined(FCKFFT_SIMD_X86_FMA)
@@ -225,6 +228,7 @@ struct NativeOps
     static FCKFFT_INLINE V load(const float* p) { return _mm_loadu_ps(p); }
     static FCKFFT_INLINE void store(float* p, V v) { _mm_storeu_ps(p, v); }
     static FCKFFT_INLINE V set(float x) { return _mm_set1_ps(x); }
+    static FCKFFT_INLINE V add(V a, V b) { return _mm_add_ps(a, b); }
     static FCKFFT_INLINE V sub(V a, V b) { return _mm_sub_ps(a, b); }
     static FCKFFT_INLINE V mul(V a, V b) { return _mm_mul_ps(a, b); }
     static FCKFFT_INLINE V madd(V a, V b, V c) { return _mm_add_ps(_mm_mul_ps(a, b), c); }
@@ -263,6 +267,7 @@ struct NativeOps
     static FCKFFT_INLINE V load(const float* p) { return vld1q_f32(p); }
     static FCKFFT_INLINE void store(float* p, V v) { vst1q_f32(p, v); }
     static FCKFFT_INLINE V set(float x) { return vdupq_n_f32(x); }
+    static FCKFFT_INLINE V add(V a, V b) { return vaddq_f32(a, b); }
     static FCKFFT_INLINE V sub(V a, V b) { return vsubq_f32(a, b); }
     static FCKFFT_INLINE V mul(V a, V b) { return vmulq_f32(a, b); }
 #if defined(__aarch64__) || defined(_M_ARM64)

@@ -162,7 +162,8 @@ TEST_CASE(bank_stride_matches_mono)
 
 TEST_CASE(bank_padding_lanes_are_inert)
 {
-    const std::vector<float> all = semitoneBins(80.0f, 3 * fckfft::ResonatorBank::kLanes + 1);
+    std::vector<float> all(3 * fckfft::ResonatorBank::kLanes + 1);
+    fckfft::logSpacedFrequencies(80.0f, 20000.0f, all.size(), all.data());
     const std::vector<float> x = signals::noise(3000, 11u);
     fckfft::DynamicResonatorBank full;
     CHECK(full.init(all.data(), all.size(), 48000.0f));
@@ -195,7 +196,7 @@ TEST_CASE(bank_reset_and_setters)
     const fckfft::Complex before = bank.value(1);
     CHECK(bank.setAlpha(1, 0.02f));
     CHECK_NEAR(bank.alpha(1), 0.02f, 0.0);
-    CHECK_NEAR(bank.value(1).re, before.re, 0.0);
+    CHECK_NEAR(bank.value(1).re, before.re, 1e-6 * std::fabs(before.re));
     CHECK_NEAR(bank.timeConstant(1), fckfft::timeConstantFromAlpha(0.02f, 48000.0f), 1e-9);
     CHECK(bank.setBeta(1, 0.5f));
     CHECK_NEAR(bank.beta(1), 0.5f, 0.0);
@@ -292,7 +293,7 @@ TEST_CASE(bank_analyze_frames)
     {
         b.process(x.data() + frame * 300, 300);
         for (std::size_t k = 0; k < f.size(); ++k)
-            CHECK_NEAR(frames[frame * f.size() + k].re, b.value(k).re, 0.0);
+            CHECK_NEAR(frames[frame * f.size() + k].re, b.value(k).re, 1e-6 * std::fabs(b.value(k).re));
     }
 }
 
@@ -325,7 +326,7 @@ TEST_CASE(bank_recovers_from_non_finite_input)
         CHECK(clean.init(f.data(), f.size(), 48000.0f));
         std::vector<float> x = signals::tone(9600, 48000.0, 440.0);
         x[1000] = poison;
-        bank.process(x.data(), 1000 + fckfft::ResonatorBank::kNormalizeInterval);
+        bank.process(x.data(), 1000 + fckfft::ResonatorBank::kRecoveryInterval);
         for (std::size_t k = 0; k < f.size(); ++k)
             CHECK(std::isfinite(bank.power(k)));
         bank.reset();
@@ -377,7 +378,7 @@ TEST_CASE(bank_matches_double_model_on_random_configurations)
         return static_cast<double>(seed >> 8) / 16777216.0;
     };
     const double sr = 48000.0;
-    double worst = 0.0;
+    double worst = 0.0, worstComplex = 0.0;
     for (int trial = 0; trial < 120; ++trial)
     {
         const std::size_t n = 1 + static_cast<std::size_t>(next() * 40.0);
@@ -417,7 +418,10 @@ TEST_CASE(bank_matches_double_model_on_random_configurations)
             }
             const double error = std::fabs(static_cast<double>(bank.magnitude(k)) - std::hypot(sr2, si));
             worst = std::max(worst, error);
+            const fckfft::Complex v = bank.value(k);
+            worstComplex = std::max(worstComplex, std::max(std::fabs(v.re - sr2), std::fabs(v.im - si)));
         }
     }
     CHECK_NEAR(worst, 0.0, 1e-5);
+    CHECK_NEAR(worstComplex, 0.0, 1e-5);
 }
