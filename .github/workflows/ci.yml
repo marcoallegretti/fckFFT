@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+        flags: ["", "-march=x86-64-v3", "-mavx"]
+        scalar: [OFF]
+        include:
+          - compiler: g++
+            flags: ""
+            scalar: ON
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DCMAKE_CXX_FLAGS="${{ matrix.flags }}" -DFCKFFT_NO_SIMD=${{ matrix.scalar }}
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - run: ./build/fckfft_bench --bins 88,880 --blocks 48 --repetitions 9
+
+  sanitizers:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        flags: ["", "-march=x86-64-v3", "-DFCKFFT_NO_SIMD"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DFCKFFT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all ${{ matrix.flags }}"
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+
+  windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flags: ["", "/arch:AVX2"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_CXX_FLAGS="/EHsc ${{ matrix.flags }}"
+      - run: cmake --build build --config Release --parallel
+      - run: ctest --test-dir build -C Release --output-on-failure
+      - run: build/Release/fckfft_bench.exe --bins 88,880 --blocks 48 --repetitions 9
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+      - run: ./build/fckfft_bench --bins 88,880 --blocks 48 --repetitions 9
+
+  arm-linux:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - packages: g++-aarch64-linux-gnu
+            compiler: aarch64-linux-gnu-g++
+            flags: ""
+            emulator: qemu-aarch64
+          - packages: g++-arm-linux-gnueabihf
+            compiler: arm-linux-gnueabihf-g++
+            flags: "-mcpu=cortex-a8 -mfpu=neon -mfloat-abi=hard"
+            emulator: qemu-arm
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ${{ matrix.packages }} qemu-user
+      - run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_SYSTEM_NAME=Linux
+          -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DCMAKE_CXX_FLAGS="${{ matrix.flags }}"
+          -DCMAKE_EXE_LINKER_FLAGS=-static -DCMAKE_CROSSCOMPILING_EMULATOR=${{ matrix.emulator }}
+          -DFCKFFT_BUILD_BENCHMARKS=OFF
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+
+  cortex-m7:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib qemu-system-arm
+      - run: >
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE=cmake/arm-none-eabi-cortex-m7.cmake -DFCKFFT_TEST_MPS2_AN500=ON
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+
+  daisy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+      - run: git clone --depth 1 --branch v9.0.0 --recurse-submodules --shallow-submodules https://github.com/electro-smith/libDaisy ../libDaisy
+      - run: make -C ../libDaisy -j4
+      - run: make -C examples/daisy/benchmark
+      - run: make -C examples/daisy/tuner
+
+  juce:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: >
+          sudo apt-get update && sudo apt-get install -y libasound2-dev libfreetype-dev libfontconfig1-dev
+          libx11-dev libxcomposite-dev libxcursor-dev libxext-dev libxinerama-dev libxrandr-dev
+          libxrender-dev libxi-dev libgl1-mesa-dev
+      - run: git clone --depth 1 --branch 9.0.3 https://github.com/juce-framework/JUCE ../JUCE
+      - run: cmake -S examples/juce/spectrogram -B build-juce -DCMAKE_BUILD_TYPE=Release -DJUCE_DIR=${{ github.workspace }}/../JUCE
+      - run: cmake --build build-juce --parallel
