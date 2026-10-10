@@ -1,0 +1,8 @@
+set(CMAKE_SYSTEM_NAME Generic)
+set(CMAKE_SYSTEM_PROCESSOR arm)
+set(CMAKE_CXX_COMPILER arm-none-eabi-g++)
+set(CMAKE_C_COMPILER arm-none-eabi-gcc)
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+set(FCKFFT_CORTEX_M7_FLAGS "-mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard")
+set(CMAKE_CXX_FLAGS_INIT "${FCKFFT_CORTEX_M7_FLAGS} -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "${FCKFFT_CORTEX_M7_FLAGS} -Wl,--gc-sections")
