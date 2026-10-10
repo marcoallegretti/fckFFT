@@ -170,7 +170,10 @@ semitone far better (−17 to −47 dB against −9 to −19 dB), because the re
 skirts fall at only 12 dB per octave. To trade latency for selectivity, choose
 `alpha` with `alphaForQ`: at Q = 17 the neighbouring semitone is at least 8 dB down
 everywhere, and the time to 90 % becomes 490 ms at 27.5 Hz, 31 ms at 440 Hz and
-3.2 ms at 4186 Hz.
+3.2 ms at 4186 Hz. A steeper resonator would not help here: at the same −3 dB
+width, four cascaded poles instead of two improve the neighbouring semitone by less
+than 1 dB and the second semitone by 2–5 dB, for twice the arithmetic and 16 % more
+time to 90 %.
 
 ## Guarantees
 
