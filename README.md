@@ -290,7 +290,9 @@ model:
 ## Versioning
 
 Releases follow semantic versioning. `FCKFFT_VERSION_MAJOR`, `FCKFFT_VERSION_MINOR`
-and `FCKFFT_VERSION_PATCH` in `fckfft.h` identify the headers in use.
+and `FCKFFT_VERSION_PATCH` in `fckfft.h` identify the headers in use. The CMake
+package takes its version from these macros, and configuration fails if the JUCE
+module declares a different one.
 
 ## Tests
 
@@ -311,7 +313,8 @@ Continuous integration runs the suite with GCC, Clang and MSVC on SSE2, AVX,
 AVX2/FMA, AVX-512 and scalar builds, under AddressSanitizer and
 UndefinedBehaviorSanitizer, on Apple Silicon, on AArch64 and ARMv7 NEON, and on a
 bare-metal Cortex-M7. It also builds both Daisy examples against libDaisy and the
-JUCE example plugin, and fuzzes both banks for two minutes.
+JUCE example plugin, builds a project against the installed CMake package
+(`tests/package`), and fuzzes both banks for two minutes.
 
 To fuzz locally (Clang):
 
