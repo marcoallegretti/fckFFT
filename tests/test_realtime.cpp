@@ -135,6 +135,21 @@ TEST_CASE(banks_do_not_allocate_after_init)
     CHECK(allocationCount == before);
 }
 
+TEST_CASE(dynamic_reinit_reuses_storage)
+{
+    const std::vector<float> f = testFrequencies(37);
+    fckfft::DynamicResonatorBank fixed;
+    fckfft::DynamicTrackingResonatorBank tracking;
+    CHECK(fixed.init(f.data(), f.size(), 48000.0f));
+    CHECK(tracking.init(f.data(), f.size(), 48000.0f));
+    const long before = allocationCount;
+    CHECK(fixed.init(f.data(), f.size(), 44100.0f));
+    CHECK(fixed.init(f.data(), 20, 96000.0f));
+    CHECK(tracking.init(f.data(), f.size(), 44100.0f));
+    CHECK(tracking.init(f.data(), 20, 96000.0f));
+    CHECK(allocationCount == before);
+}
+
 TEST_CASE(process_restores_floating_point_control)
 {
     const std::vector<float> f = testFrequencies(9);

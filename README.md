@@ -85,6 +85,20 @@ every rule follows a double-precision model of the same algorithm, while at 1.5â
 `alpha` the tracking loop amplifies rounding differences into frequency errors of
 hundreds of Hz.
 
+The tracking bank's `setAlpha`, `setBeta`, `setGamma`, `setNaturalFrequency`,
+`setRule`, `setThresholdDb` and `setPowerTimeConstant` work while it runs, and, like
+`init`, return `false` and change nothing for invalid values. The power time constant
+is kept in seconds and carries over to the next `init`.
+
+### Changing the sample rate
+
+`alpha`, `beta` and `gamma` are per-sample coefficients, so the same values give
+different time constants at another sample rate. Call `init` again from the host's
+preparation callback (for example JUCE's `prepareToPlay`), with coefficients computed
+for the new rate by `alphaFromTimeConstant`, `alphaForBandwidth`, `alphaForQ` or
+`heuristicAlpha`. A `Dynamic` bank allocates only if the new configuration needs more
+storage than the previous one.
+
 ## Integration
 
 ### CMake
