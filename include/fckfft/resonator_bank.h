@@ -141,7 +141,7 @@ public:
             const std::size_t due = kRecoveryInterval - sinceCheck_;
             const std::size_t n = numSamples < due ? numSamples : due;
             const bool check = n == due;
-            backend_->bank(groups_, numGroups_, input, n, stride, check);
+            backend_->process(groups_, numGroups_, input, n, stride, check);
             sinceCheck_ = check ? 0 : sinceCheck_ + n;
             input += n * stride;
             numSamples -= n;
@@ -323,10 +323,10 @@ private:
         if (storage == nullptr || count == 0 || storageCount < storageSize(count)
             || !validParameters(frequencies, alphas, betas, count, sampleRate))
             return false;
-        const detail::Backend& backend = detail::selectBackend();
-        const std::size_t numGroups = (count + backend.bankLanes - 1) / backend.bankLanes;
+        const detail::BankBackend& backend = detail::selectBankBackend();
+        const std::size_t numGroups = (count + backend.lanes - 1) / backend.lanes;
         backend_ = &backend;
-        lanes_ = backend.bankLanes;
+        lanes_ = backend.lanes;
         groups_ = storage;
         info_ = storage + numGroups * Kernel::kFields * lanes_;
         size_ = count;
@@ -347,8 +347,8 @@ private:
         return true;
     }
 
-    const detail::Backend* backend_ = &detail::baseline::kBackend;
-    std::size_t lanes_ = detail::baseline::kBackend.bankLanes;
+    const detail::BankBackend* backend_ = &detail::baseline::kBankBackend;
+    std::size_t lanes_ = detail::baseline::kBankBackend.lanes;
     float* groups_ = nullptr;
     float* info_ = nullptr;
     std::size_t size_ = 0;

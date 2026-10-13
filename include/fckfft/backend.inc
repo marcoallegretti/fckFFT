@@ -601,10 +601,11 @@ inline void sanitizeTracking(float* groups, std::size_t numGroups)
     TrackingKernel::sanitize(groups, numGroups);
 }
 
-constexpr Backend kBackend = {FCKFFT_BACKEND_ISA,
-                              BankKernel::kLanes,
-                              TrackingKernel::kLanes,
-                              &processBank,
-                              {&processTracking<TrackingRule::none>, &processTracking<TrackingRule::ewma>,
-                               &processTracking<TrackingRule::normalizedChord>, &processTracking<TrackingRule::tangent>},
-                              &sanitizeTracking};
+constexpr BankBackend kBankBackend = {FCKFFT_BACKEND_ISA, BankKernel::kLanes, &processBank};
+
+constexpr TrackingBackend kTrackingBackend = {
+    FCKFFT_BACKEND_ISA,
+    TrackingKernel::kLanes,
+    {&processTracking<TrackingRule::none>, &processTracking<TrackingRule::ewma>,
+     &processTracking<TrackingRule::normalizedChord>, &processTracking<TrackingRule::tangent>},
+    &sanitizeTracking};

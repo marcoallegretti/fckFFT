@@ -200,13 +200,18 @@ struct TrackingLayout
     static constexpr std::size_t kPacks = 2;
 };
 
-struct Backend
+struct BankBackend
 {
     Isa isa;
-    std::size_t bankLanes;
-    std::size_t trackingLanes;
-    void (*bank)(float*, std::size_t, const float*, std::size_t, std::size_t, bool);
-    void (*tracking[4])(float*, std::size_t, const float*, std::size_t, std::size_t, bool, float, float, float&);
+    std::size_t lanes;
+    void (*process)(float*, std::size_t, const float*, std::size_t, std::size_t, bool);
+};
+
+struct TrackingBackend
+{
+    Isa isa;
+    std::size_t lanes;
+    void (*process[4])(float*, std::size_t, const float*, std::size_t, std::size_t, bool, float, float, float&);
     void (*sanitize)(float*, std::size_t);
 };
 
@@ -279,23 +284,23 @@ constexpr std::size_t maxLanes(std::size_t a, std::size_t b)
     return a > b ? a : b;
 }
 
-constexpr std::size_t kMaxBankLanes = maxLanes(baseline::kBackend.bankLanes,
+constexpr std::size_t kMaxBankLanes = maxLanes(baseline::kBankBackend.lanes,
 #if defined(FCKFFT_HAS_AVX512_BACKEND)
-                                               avx512::kBackend.bankLanes
+                                               avx512::kBankBackend.lanes
 #elif defined(FCKFFT_HAS_AVX2_BACKEND)
-                                               avx2::kBackend.bankLanes
+                                               avx2::kBankBackend.lanes
 #else
-                                               baseline::kBackend.bankLanes
+                                               baseline::kBankBackend.lanes
 #endif
 );
 
-constexpr std::size_t kMaxTrackingLanes = maxLanes(baseline::kBackend.trackingLanes,
+constexpr std::size_t kMaxTrackingLanes = maxLanes(baseline::kTrackingBackend.lanes,
 #if defined(FCKFFT_HAS_AVX512_BACKEND)
-                                                   avx512::kBackend.trackingLanes
+                                                   avx512::kTrackingBackend.lanes
 #elif defined(FCKFFT_HAS_AVX2_BACKEND)
-                                                   avx2::kBackend.trackingLanes
+                                                   avx2::kTrackingBackend.lanes
 #else
-                                                   baseline::kBackend.trackingLanes
+                                                   baseline::kTrackingBackend.lanes
 #endif
 );
 
@@ -357,7 +362,7 @@ inline std::atomic<int>& isaLimitStorage()
 
 inline Isa baselineIsa() noexcept
 {
-    return detail::baseline::kBackend.isa;
+    return detail::baseline::kBankBackend.isa;
 }
 
 inline Isa supportedIsa() noexcept
@@ -385,22 +390,52 @@ inline void setIsaLimit(Isa limit) noexcept
 
 namespace detail {
 
-inline const Backend& selectBackend() noexcept
+inline Isa selectedIsa() noexcept
 {
 #if defined(FCKFFT_DISPATCH)
     const int cpu = static_cast<int>(supportedIsa()), limit = static_cast<int>(isaLimit());
 #if defined(FCKFFT_HAS_AVX512_BACKEND)
     if (cpu >= static_cast<int>(Isa::avx512) && limit >= static_cast<int>(Isa::avx512))
-        return avx512::kBackend;
+        return Isa::avx512;
 #endif
 #if defined(FCKFFT_HAS_AVX2_BACKEND)
     if (cpu >= static_cast<int>(Isa::avx2) && limit >= static_cast<int>(Isa::avx2))
-        return avx2::kBackend;
+        return Isa::avx2;
 #endif
     (void)cpu;
     (void)limit;
 #endif
-    return baseline::kBackend;
+    return baselineIsa();
+}
+
+inline const BankBackend& selectBankBackend() noexcept
+{
+    const Isa isa = selectedIsa();
+#if defined(FCKFFT_HAS_AVX512_BACKEND)
+    if (isa == Isa::avx512)
+        return avx512::kBankBackend;
+#endif
+#if defined(FCKFFT_HAS_AVX2_BACKEND)
+    if (isa == Isa::avx2)
+        return avx2::kBankBackend;
+#endif
+    (void)isa;
+    return baseline::kBankBackend;
+}
+
+inline const TrackingBackend& selectTrackingBackend() noexcept
+{
+    const Isa isa = selectedIsa();
+#if defined(FCKFFT_HAS_AVX512_BACKEND)
+    if (isa == Isa::avx512)
+        return avx512::kTrackingBackend;
+#endif
+#if defined(FCKFFT_HAS_AVX2_BACKEND)
+    if (isa == Isa::avx2)
+        return avx2::kTrackingBackend;
+#endif
+    (void)isa;
+    return baseline::kTrackingBackend;
 }
 
 }

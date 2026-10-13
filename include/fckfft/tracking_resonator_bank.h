@@ -246,8 +246,8 @@ private:
 
     void processChunk(const float* input, std::size_t n, std::size_t stride, bool renormalize) noexcept
     {
-        backend_->tracking[static_cast<int>(rule_)](groups_, numGroups_, input, n, stride, renormalize, sigma_, ratio_,
-                                                     accPower_);
+        backend_->process[static_cast<int>(rule_)](groups_, numGroups_, input, n, stride, renormalize, sigma_, ratio_,
+                                                   accPower_);
     }
 
     std::size_t paddedSize() const noexcept { return numGroups_ * lanes_; }
@@ -275,10 +275,10 @@ private:
         if (storage == nullptr || count == 0 || storageCount < storageSize(count)
             || !validParameters(frequencies, alphas, betas, gammas, count, sampleRate, thresholdDb))
             return false;
-        const detail::Backend& backend = detail::selectBackend();
-        const std::size_t numGroups = (count + backend.trackingLanes - 1) / backend.trackingLanes;
+        const detail::TrackingBackend& backend = detail::selectTrackingBackend();
+        const std::size_t numGroups = (count + backend.lanes - 1) / backend.lanes;
         backend_ = &backend;
-        lanes_ = backend.trackingLanes;
+        lanes_ = backend.lanes;
         groups_ = storage;
         info_ = storage + numGroups * Kernel::kFields * lanes_;
         size_ = count;
@@ -317,8 +317,8 @@ private:
         return true;
     }
 
-    const detail::Backend* backend_ = &detail::baseline::kBackend;
-    std::size_t lanes_ = detail::baseline::kBackend.trackingLanes;
+    const detail::TrackingBackend* backend_ = &detail::baseline::kTrackingBackend;
+    std::size_t lanes_ = detail::baseline::kTrackingBackend.lanes;
     float* groups_ = nullptr;
     float* info_ = nullptr;
     std::size_t size_ = 0;
