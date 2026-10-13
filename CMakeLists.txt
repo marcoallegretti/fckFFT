@@ -93,6 +93,14 @@ if(FCKFFT_BUILD_TESTS)
         add_test(NAME fckfft_kernel_code
             COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/mps2/check_kernels.py ${CMAKE_OBJDUMP}
                     $<TARGET_FILE:fckfft_tests>)
+        add_executable(fckfft_instruction_counts tests/mps2/instruction_counts.cpp tests/mps2/startup.cpp)
+        target_link_libraries(fckfft_instruction_counts PRIVATE fckfft)
+        target_link_options(fckfft_instruction_counts PRIVATE --specs=rdimon.specs
+            -T${PROJECT_SOURCE_DIR}/tests/mps2/mps2_an500.ld)
+        set_target_properties(fckfft_instruction_counts PROPERTIES CROSSCOMPILING_EMULATOR
+            "qemu-system-arm;-M;mps2-an500;-nographic;-monitor;none;-icount;shift=0;-semihosting-config;enable=on,target=native;-kernel")
+        add_test(NAME fckfft_instruction_counts COMMAND fckfft_instruction_counts)
+        set_tests_properties(fckfft_instruction_counts PROPERTIES TIMEOUT 600)
     endif()
 endif()
 
