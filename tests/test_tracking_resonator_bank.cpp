@@ -2,7 +2,6 @@
 #include <cmath>
 #include <type_traits>
 #include <utility>
-#include <limits>
 #include <vector>
 
 #include <fckfft/frequencies.h>
@@ -42,7 +41,7 @@ TEST_CASE(tracking_rejects_invalid_arguments)
     fckfft::TrackingResonatorBank bank;
     CHECK(!bank.init(storage.data(), storage.size() - 1, f, 2, 48000.0f));
     CHECK(!bank.init(storage.data(), storage.size(), f, a, a, badGamma, 2, 48000.0f));
-    CHECK(!bank.init(storage.data(), storage.size(), f, 2, 48000.0f, TrackingRule::ewma, std::nanf("")));
+    CHECK(!bank.init(storage.data(), storage.size(), f, 2, 48000.0f, TrackingRule::ewma, check::fromBits(0x7FC00000u)));
     CHECK(bank.init(storage.data(), storage.size(), f, a, nullptr, nullptr, 2, 48000.0f));
     CHECK_NEAR(bank.beta(1), 0.01f, 0.0);
     CHECK_NEAR(bank.gamma(1), 0.005f, 0.0);
@@ -164,7 +163,7 @@ TEST_CASE(tracking_recovers_after_dropout)
             model.step(v);
         bank.process(x.data(), x.size());
         const std::size_t k = strongest(bank);
-        CHECK(std::isfinite(bank.magnitude(k)));
+        CHECK(check::finite(bank.magnitude(k)));
         CHECK_NEAR(bank.resonantFrequency(k), 466.0, 0.05);
         CHECK_NEAR(bank.resonantFrequency(k), model.resonantFrequency(k), 0.05);
         CHECK_NEAR(bank.magnitude(k), model.magnitude(k), 2e-4);
@@ -185,9 +184,9 @@ TEST_CASE(tracking_starts_from_silence_without_nan)
         bank.process(silence.data(), silence.size());
         for (std::size_t k = 0; k < f.size(); ++k)
         {
-            CHECK(std::isfinite(bank.magnitude(k)));
-            CHECK(std::isfinite(bank.resonantFrequency(k)));
-            CHECK(std::isfinite(bank.instantaneousFrequency(k)));
+            CHECK(check::finite(bank.magnitude(k)));
+            CHECK(check::finite(bank.resonantFrequency(k)));
+            CHECK(check::finite(bank.instantaneousFrequency(k)));
         }
     }
 }
@@ -303,12 +302,12 @@ TEST_CASE(tracking_bulk_readouts)
     bank.values(v.data());
     for (std::size_t k = 0; k < f.size(); ++k)
     {
-        CHECK_NEAR(p[k], bank.power(k), 0.0);
-        CHECK_NEAR(m[k], bank.magnitude(k), 0.0);
-        CHECK_NEAR(ph[k], bank.phase(k), 0.0);
-        CHECK_NEAR(rf[k], bank.resonantFrequency(k), 0.0);
-        CHECK_NEAR(inst[k], bank.instantaneousFrequency(k), 0.0);
-        CHECK_NEAR(v[k].re, bank.value(k).re, 0.0);
+        CHECK_SAME(p[k], bank.power(k));
+        CHECK_SAME(m[k], bank.magnitude(k));
+        CHECK_SAME(ph[k], bank.phase(k));
+        CHECK_SAME(rf[k], bank.resonantFrequency(k));
+        CHECK_SAME(inst[k], bank.instantaneousFrequency(k));
+        CHECK_SAME(v[k].re, bank.value(k).re);
         CHECK_NEAR(bank.deltaPhase(k) * 48000.0 / (2.0 * signals::kPi), inst[k] - rf[k], 1e-2);
     }
 }
@@ -316,7 +315,7 @@ TEST_CASE(tracking_bulk_readouts)
 TEST_CASE(tracking_recovers_from_non_finite_input)
 {
     const std::vector<float> f = semitones(400.0f, 9);
-    const float bad[2] = {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()};
+    const float bad[2] = {check::fromBits(0x7FC00000u), check::fromBits(0x7F800000u)};
     const std::size_t bound =
         fckfft::TrackingResonatorBank::kNormalizeInterval * fckfft::TrackingResonatorBank::kSanitizeEvery;
     for (int rule = 0; rule < 4; ++rule)
@@ -329,11 +328,11 @@ TEST_CASE(tracking_recovers_from_non_finite_input)
             bank.process(x.data(), 1000 + bound);
             for (std::size_t k = 0; k < f.size(); ++k)
             {
-                CHECK(std::isfinite(bank.power(k)));
-                CHECK(std::isfinite(bank.resonantFrequency(k)));
-                CHECK(std::isfinite(bank.instantaneousFrequency(k)));
+                CHECK(check::finite(bank.power(k)));
+                CHECK(check::finite(bank.resonantFrequency(k)));
+                CHECK(check::finite(bank.instantaneousFrequency(k)));
             }
-            CHECK(std::isfinite(bank.accumulatedPower()));
+            CHECK(check::finite(bank.accumulatedPower()));
             bank.process(x.data() + 1000 + bound, x.size() - 1000 - bound);
             if (rule != 0)
                 CHECK_NEAR(bank.resonantFrequency(strongest(bank)), 452.0, 0.05);

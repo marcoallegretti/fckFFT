@@ -19,14 +19,21 @@ namespace detail {
 
 constexpr double kTwoPi = 6.283185307179586476925286766559;
 
+inline bool finite(float x)
+{
+    std::uint32_t u;
+    std::memcpy(&u, &x, sizeof u);
+    return (u & 0x7F800000u) != 0x7F800000u;
+}
+
 inline bool inUnitInterval(float x)
 {
-    return x > 0.0f && x <= 1.0f;
+    return finite(x) && x > 0.0f && x <= 1.0f;
 }
 
 inline bool validFrequency(float f, float sampleRate)
 {
-    return f >= 0.0f && f <= 0.5f * sampleRate;
+    return finite(f) && f >= 0.0f && f <= 0.5f * sampleRate;
 }
 
 inline bool acceptableDecay(float requested, double effective)
@@ -248,7 +255,7 @@ public:
     static bool validParameters(const float* frequencies, const float* alphas, const float* betas, std::size_t count,
                                 float sampleRate) noexcept
     {
-        if (frequencies == nullptr || count == 0 || !(sampleRate > 0.0f) || !std::isfinite(sampleRate))
+        if (frequencies == nullptr || count == 0 || !detail::finite(sampleRate) || !(sampleRate > 0.0f))
             return false;
         for (std::size_t k = 0; k < count; ++k)
         {

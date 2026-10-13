@@ -2,6 +2,8 @@
 #define FCKFFT_TESTS_CHECK_H
 
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <vector>
 
@@ -40,6 +42,30 @@ inline void failNear(const char* file, int line, const char* expr, double a, dou
 {
     ++failures();
     std::printf("  FAIL %s:%d: %s (%.9g vs %.9g, tol %.3g)\n", file, line, expr, a, b, tol);
+}
+
+inline double sameTolerance(double reference)
+{
+#if defined(__FAST_MATH__)
+    return 1e-5 * std::fabs(reference) + 1e-7;
+#else
+    (void)reference;
+    return 0.0;
+#endif
+}
+
+inline float fromBits(std::uint32_t u)
+{
+    float x;
+    std::memcpy(&x, &u, sizeof x);
+    return x;
+}
+
+inline bool finite(float x)
+{
+    std::uint32_t u;
+    std::memcpy(&u, &x, sizeof u);
+    return (u & 0x7F800000u) != 0x7F800000u;
 }
 
 inline int run()
@@ -83,5 +109,7 @@ inline int run()
         if (!(std::fabs(check_a - check_b) <= (tol)))                                                                  \
             check::failNear(__FILE__, __LINE__, #a " ~ " #b, check_a, check_b, (tol));                                 \
     } while (0)
+
+#define CHECK_SAME(a, b) CHECK_NEAR(a, b, check::sameTolerance(static_cast<double>(b)))
 
 #endif

@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <type_traits>
 #include <utility>
-#include <limits>
 #include <string>
 #include <vector>
 
@@ -34,13 +33,13 @@ TEST_CASE(bank_rejects_invalid_arguments)
     const float badAlphas[4] = {0.01f, 0.0f, 0.01f, 0.01f};
     const float bigAlphas[4] = {0.01f, 1.5f, 0.01f, 0.01f};
     const float badFreqs[4] = {100.0f, 30000.0f, 300.0f, 400.0f};
-    const float nanFreqs[4] = {100.0f, std::nanf(""), 300.0f, 400.0f};
+    const float nanFreqs[4] = {100.0f, check::fromBits(0x7FC00000u), 300.0f, 400.0f};
     fckfft::ResonatorBank bank;
     CHECK(!bank.init(nullptr, storage.size(), freqs, alphas, 4, 48000.0f));
     CHECK(!bank.init(storage.data(), storage.size() - 1, freqs, alphas, 4, 48000.0f));
     CHECK(!bank.init(storage.data(), storage.size(), freqs, alphas, 0, 48000.0f));
     CHECK(!bank.init(storage.data(), storage.size(), freqs, alphas, 4, 0.0f));
-    CHECK(!bank.init(storage.data(), storage.size(), freqs, alphas, 4, std::nanf("")));
+    CHECK(!bank.init(storage.data(), storage.size(), freqs, alphas, 4, check::fromBits(0x7FC00000u)));
     CHECK(!bank.init(storage.data(), storage.size(), freqs, badAlphas, 4, 48000.0f));
     CHECK(!bank.init(storage.data(), storage.size(), freqs, bigAlphas, 4, 48000.0f));
     CHECK(!bank.init(storage.data(), storage.size(), badFreqs, alphas, 4, 48000.0f));
@@ -132,8 +131,8 @@ TEST_CASE(bank_block_size_independent)
         b.values(other.data());
         for (std::size_t k = 0; k < f.size(); ++k)
         {
-            CHECK_NEAR(other[k].re, reference[k].re, 0.0);
-            CHECK_NEAR(other[k].im, reference[k].im, 0.0);
+            CHECK_SAME(other[k].re, reference[k].re);
+            CHECK_SAME(other[k].im, reference[k].im);
         }
     }
 }
@@ -176,8 +175,8 @@ TEST_CASE(bank_padding_lanes_are_inert)
         part.process(x.data(), x.size());
         for (std::size_t k = 0; k < n; ++k)
         {
-            CHECK_NEAR(part.value(k).re, full.value(k).re, 0.0);
-            CHECK_NEAR(part.value(k).im, full.value(k).im, 0.0);
+            CHECK_SAME(part.value(k).re, full.value(k).re);
+            CHECK_SAME(part.value(k).im, full.value(k).im);
         }
     }
 }
@@ -235,7 +234,7 @@ TEST_CASE(bank_long_run_stability)
     for (int second = 0; second < 30; ++second)
         aged.process(n.data(), n.size());
     for (std::size_t k = 0; k < f.size(); ++k)
-        CHECK(std::isfinite(aged.magnitude(k)) && aged.magnitude(k) < 1.0f);
+        CHECK(check::finite(aged.magnitude(k)) && aged.magnitude(k) < 1.0f);
     const std::vector<float> silence(96000, 0.0f);
     aged.process(silence.data(), silence.size());
     const std::vector<float> t = signals::tone(48000, 48000.0, 400.0);
@@ -319,7 +318,7 @@ TEST_CASE(bank_frequency_selectivity)
 TEST_CASE(bank_recovers_from_non_finite_input)
 {
     const std::vector<float> f = semitoneBins(200.0f, 19);
-    const float bad[2] = {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()};
+    const float bad[2] = {check::fromBits(0x7FC00000u), check::fromBits(0x7F800000u)};
     for (float poison : bad)
     {
         fckfft::DynamicResonatorBank bank, clean;
@@ -329,12 +328,12 @@ TEST_CASE(bank_recovers_from_non_finite_input)
         x[1000] = poison;
         bank.process(x.data(), 1000 + fckfft::ResonatorBank::kRecoveryInterval);
         for (std::size_t k = 0; k < f.size(); ++k)
-            CHECK(std::isfinite(bank.power(k)));
+            CHECK(check::finite(bank.power(k)));
         bank.reset();
         bank.process(x.data() + 2000, 7600);
         clean.process(x.data() + 2000, 7600);
         for (std::size_t k = 0; k < f.size(); ++k)
-            CHECK_NEAR(bank.value(k).re, clean.value(k).re, 0.0);
+            CHECK_SAME(bank.value(k).re, clean.value(k).re);
     }
 }
 
@@ -497,7 +496,7 @@ TEST_CASE(bank_rejects_unrepresentable_time_constants)
     CHECK(!bank.setBeta(0, 1e-9f));
     CHECK(bank.alpha(0) == alpha && bank.beta(0) == beta);
     CHECK(bank.value(0).re == before.re && bank.value(0).im == before.im);
-    CHECK(std::isfinite(bank.magnitude(0)));
+    CHECK(check::finite(bank.magnitude(0)));
 }
 
 TEST_CASE(bank_failed_init_keeps_configuration)
@@ -615,6 +614,6 @@ TEST_CASE(bank_readouts_cover_documented_amplitudes)
         CHECK_NEAR(mags[0] / amplitude, 0.5, 0.01);
         CHECK_NEAR(bank.magnitude(0), mags[0], 0.0);
         CHECK_NEAR(powers[0] / (amplitude * amplitude), 0.25, 0.01);
-        CHECK(std::isfinite(mags[1]) && std::isfinite(powers[1]));
+        CHECK(check::finite(mags[1]) && check::finite(powers[1]));
     }
 }

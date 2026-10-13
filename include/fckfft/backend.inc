@@ -69,6 +69,44 @@ struct Ops
     static FCKFFT_INLINE V max(V a, V b) { return selectGe(a, b, a, b); }
 #endif
     static FCKFFT_INLINE float reduceMax(V a) { return a; }
+#if defined(__ARM_FP) && (__ARM_FP & 4) && !defined(__aarch64__) && (defined(__GNUC__) || defined(__clang__))
+    static FCKFFT_INLINE V nonFinite(V a)
+    {
+        V r;
+        __asm__("vmul.f32 %0, %1, %2" : "=t"(r) : "t"(a), "t"(0.0f));
+        return r;
+    }
+    static FCKFFT_INLINE V either(V a, V b)
+    {
+        V r;
+        __asm__("vadd.f32 %0, %1, %2" : "=t"(r) : "t"(a), "t"(b));
+        return r;
+    }
+    static FCKFFT_INLINE V blend(V mask, V keep, V reset) { return selectGe(mask, 0.0f, keep, reset); }
+#else
+    static FCKFFT_INLINE std::uint32_t bits(V a)
+    {
+        std::uint32_t u;
+        std::memcpy(&u, &a, sizeof u);
+        return u;
+    }
+    static FCKFFT_INLINE V fromBits(std::uint32_t u)
+    {
+        V a;
+        std::memcpy(&a, &u, sizeof a);
+        return a;
+    }
+    static FCKFFT_INLINE V nonFinite(V a)
+    {
+        return fromBits(0u - static_cast<std::uint32_t>((bits(a) & 0x7F800000u) == 0x7F800000u));
+    }
+    static FCKFFT_INLINE V either(V a, V b) { return fromBits(bits(a) | bits(b)); }
+    static FCKFFT_INLINE V blend(V mask, V keep, V reset)
+    {
+        const std::uint32_t m = bits(mask);
+        return fromBits((bits(reset) & m) | (bits(keep) & ~m));
+    }
+#endif
 };
 
 #elif FCKFFT_BACKEND == FCKFFT_BACKEND_SSE2
@@ -109,6 +147,16 @@ struct Ops
         m = _mm_max_ss(m, _mm_shuffle_ps(m, m, 1));
         return _mm_cvtss_f32(m);
     }
+    static FCKFFT_INLINE V nonFinite(V a)
+    {
+        const __m128i e = _mm_set1_epi32(0x7F800000);
+        return _mm_castsi128_ps(_mm_cmpeq_epi32(_mm_and_si128(_mm_castps_si128(a), e), e));
+    }
+    static FCKFFT_INLINE V either(V a, V b) { return _mm_or_ps(a, b); }
+    static FCKFFT_INLINE V blend(V mask, V keep, V reset)
+    {
+        return _mm_or_ps(_mm_and_ps(mask, reset), _mm_andnot_ps(mask, keep));
+    }
 };
 #elif FCKFFT_BACKEND == FCKFFT_BACKEND_AVX
 struct Ops
@@ -145,6 +193,17 @@ struct Ops
         m = _mm_max_ss(m, _mm_shuffle_ps(m, m, 1));
         return _mm_cvtss_f32(m);
     }
+    static FCKFFT_INLINE V nonFinite(V a)
+    {
+        const __m128i e = _mm_set1_epi32(0x7F800000);
+        const __m128i lo = _mm_castps_si128(_mm256_castps256_ps128(a));
+        const __m128i hi = _mm_castps_si128(_mm256_extractf128_ps(a, 1));
+        const __m128 ml = _mm_castsi128_ps(_mm_cmpeq_epi32(_mm_and_si128(lo, e), e));
+        const __m128 mh = _mm_castsi128_ps(_mm_cmpeq_epi32(_mm_and_si128(hi, e), e));
+        return _mm256_insertf128_ps(_mm256_castps128_ps256(ml), mh, 1);
+    }
+    static FCKFFT_INLINE V either(V a, V b) { return _mm256_or_ps(a, b); }
+    static FCKFFT_INLINE V blend(V mask, V keep, V reset) { return _mm256_blendv_ps(keep, reset, mask); }
 };
 #elif FCKFFT_BACKEND == FCKFFT_BACKEND_AVX2
 struct Ops
@@ -181,6 +240,13 @@ struct Ops
         m = _mm_max_ss(m, _mm_shuffle_ps(m, m, 1));
         return _mm_cvtss_f32(m);
     }
+    static FCKFFT_INLINE V nonFinite(V a)
+    {
+        const __m256i e = _mm256_set1_epi32(0x7F800000);
+        return _mm256_castsi256_ps(_mm256_cmpeq_epi32(_mm256_and_si256(_mm256_castps_si256(a), e), e));
+    }
+    static FCKFFT_INLINE V either(V a, V b) { return _mm256_or_ps(a, b); }
+    static FCKFFT_INLINE V blend(V mask, V keep, V reset) { return _mm256_blendv_ps(keep, reset, mask); }
 };
 #elif FCKFFT_BACKEND == FCKFFT_BACKEND_AVX512
 struct Ops
@@ -211,6 +277,21 @@ struct Ops
     static FCKFFT_INLINE V max(V a, V b) { return _mm512_max_ps(a, b); }
     static FCKFFT_INLINE V selectGe(V a, V b, V t, V f) { return _mm512_mask_blend_ps(_mm512_cmp_ps_mask(a, b, _CMP_GE_OQ), f, t); }
     static FCKFFT_INLINE float reduceMax(V a) { return _mm512_reduce_max_ps(a); }
+    static FCKFFT_INLINE V nonFinite(V a)
+    {
+        const __m512i e = _mm512_set1_epi32(0x7F800000);
+        const __mmask16 m = _mm512_cmpeq_epi32_mask(_mm512_and_si512(_mm512_castps_si512(a), e), e);
+        return _mm512_castsi512_ps(_mm512_maskz_set1_epi32(m, -1));
+    }
+    static FCKFFT_INLINE V either(V a, V b)
+    {
+        return _mm512_castsi512_ps(_mm512_or_si512(_mm512_castps_si512(a), _mm512_castps_si512(b)));
+    }
+    static FCKFFT_INLINE V blend(V mask, V keep, V reset)
+    {
+        const __m512i m = _mm512_castps_si512(mask);
+        return _mm512_mask_blend_ps(_mm512_test_epi32_mask(m, m), keep, reset);
+    }
 };
 #elif FCKFFT_BACKEND == FCKFFT_BACKEND_NEON
 struct Ops
@@ -253,6 +334,16 @@ struct Ops
     static FCKFFT_INLINE V min(V a, V b) { return vminq_f32(a, b); }
     static FCKFFT_INLINE V max(V a, V b) { return vmaxq_f32(a, b); }
     static FCKFFT_INLINE V selectGe(V a, V b, V t, V f) { return vbslq_f32(vcgeq_f32(a, b), t, f); }
+    static FCKFFT_INLINE V nonFinite(V a)
+    {
+        const uint32x4_t e = vdupq_n_u32(0x7F800000u);
+        return vreinterpretq_f32_u32(vceqq_u32(vandq_u32(vreinterpretq_u32_f32(a), e), e));
+    }
+    static FCKFFT_INLINE V either(V a, V b)
+    {
+        return vreinterpretq_f32_u32(vorrq_u32(vreinterpretq_u32_f32(a), vreinterpretq_u32_f32(b)));
+    }
+    static FCKFFT_INLINE V blend(V mask, V keep, V reset) { return vbslq_f32(vreinterpretq_u32_f32(mask), reset, keep); }
 };
 #endif
 
@@ -378,14 +469,12 @@ struct BankKernel : BankLayout
     static FCKFFT_INLINE void sanitizeOne(Pack& p, std::size_t j)
     {
         const V zero = Ops::set(0.0f);
-        V t = Ops::mul(p.vr[j], zero);
-        t = Ops::madd(p.vi[j], zero, t);
-        t = Ops::madd(p.sr[j], zero, t);
-        t = Ops::madd(p.si[j], zero, t);
-        p.vr[j] = Ops::selectGe(t, zero, p.vr[j], zero);
-        p.vi[j] = Ops::selectGe(t, zero, p.vi[j], zero);
-        p.sr[j] = Ops::selectGe(t, zero, p.sr[j], zero);
-        p.si[j] = Ops::selectGe(t, zero, p.si[j], zero);
+        const V bad = Ops::either(Ops::either(Ops::nonFinite(p.vr[j]), Ops::nonFinite(p.vi[j])),
+                                  Ops::either(Ops::nonFinite(p.sr[j]), Ops::nonFinite(p.si[j])));
+        p.vr[j] = Ops::blend(bad, p.vr[j], zero);
+        p.vi[j] = Ops::blend(bad, p.vi[j], zero);
+        p.sr[j] = Ops::blend(bad, p.sr[j], zero);
+        p.si[j] = Ops::blend(bad, p.si[j], zero);
     }
 
     static FCKFFT_INLINE void sanitize(Pack& p)
@@ -524,10 +613,10 @@ struct TrackingKernel : TrackingLayout
             for (std::size_t half = 0; half < 2; ++half)
             {
                 float* base = groups + g * kGroupFloats + half * kWidth;
-                V t = zero;
-                for (int f = kZr; f < kFields; ++f)
-                    t = Ops::madd(ld(base, f), zero, t);
-                if (Ops::reduceMax(Ops::selectGe(t, zero, zero, Ops::set(1.0f))) == 0.0f)
+                V bad = Ops::nonFinite(ld(base, kZr));
+                for (int f = kZr + 1; f < kFields; ++f)
+                    bad = Ops::either(bad, Ops::nonFinite(ld(base, f)));
+                if (Ops::reduceMax(Ops::blend(bad, zero, Ops::set(1.0f))) == 0.0f)
                     continue;
                 for (int f = kZr; f < kFields; ++f)
                 {
@@ -538,7 +627,7 @@ struct TrackingKernel : TrackingLayout
                         reset = ld(base, kNwr);
                     else if (f == kWi)
                         reset = ld(base, kNwi);
-                    st(base, f, Ops::selectGe(t, zero, ld(base, f), reset));
+                    st(base, f, Ops::blend(bad, ld(base, f), reset));
                 }
             }
     }

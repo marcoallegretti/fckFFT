@@ -91,7 +91,7 @@ public:
             if (renormalize && ++renormalizations_ % kSanitizeEvery == 0)
             {
                 backend_->sanitize(groups_, numGroups_);
-                if (!std::isfinite(accPower_))
+                if (!detail::finite(accPower_))
                     accPower_ = kInitialAccumulatedPower;
             }
             sinceNormalize_ = renormalize ? 0 : sinceNormalize_ + n;
@@ -136,8 +136,8 @@ public:
     static bool validParameters(const float* frequencies, const float* alphas, const float* betas, const float* gammas,
                                 std::size_t count, float sampleRate, float thresholdDb) noexcept
     {
-        if (frequencies == nullptr || count == 0 || !(sampleRate > 0.0f) || !std::isfinite(sampleRate)
-            || !std::isfinite(thresholdDb))
+        if (frequencies == nullptr || count == 0 || !detail::finite(sampleRate) || !(sampleRate > 0.0f)
+            || !detail::finite(thresholdDb))
             return false;
         for (std::size_t k = 0; k < count; ++k)
         {
@@ -145,7 +145,7 @@ public:
             const float b = betas != nullptr ? betas[k] : a;
             const float g = gammas != nullptr ? gammas[k] : 0.5f * a;
             if (!detail::validFrequency(frequencies[k], sampleRate) || !acceptableDecay(a) || !acceptableDecay(b)
-                || !(g >= 0.0f && g <= 1.0f))
+                || !(detail::finite(g) && g >= 0.0f && g <= 1.0f))
                 return false;
         }
         return true;
@@ -153,7 +153,7 @@ public:
 
     bool setGamma(std::size_t k, float g) noexcept
     {
-        if (k >= size_ || !(g >= 0.0f && g <= 1.0f))
+        if (k >= size_ || !(detail::finite(g) && g >= 0.0f && g <= 1.0f))
             return false;
         info_[3 * size_ + k] = g;
         field(k, Kernel::kGm) = g;
