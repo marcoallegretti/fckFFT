@@ -468,6 +468,7 @@ TEST_CASE(tracking_reinit_matches_fresh_bank)
     reused.process(x.data(), x.size());
     CHECK(reused.init(second.data(), second.size(), 44100.0f, TrackingRule::normalizedChord));
     CHECK(fresh.init(second.data(), second.size(), 44100.0f, TrackingRule::normalizedChord));
+    CHECK(fresh.setPowerTimeConstant(0.2f));
     reused.process(x.data(), x.size());
     fresh.process(x.data(), x.size());
     CHECK(reused.size() == second.size());
@@ -476,6 +477,89 @@ TEST_CASE(tracking_reinit_matches_fresh_bank)
     {
         CHECK_SAME(reused.power(k), fresh.power(k));
         CHECK_SAME(reused.resonantFrequency(k), fresh.resonantFrequency(k));
+    }
+}
+
+TEST_CASE(tracking_setters_reject_invalid_values)
+{
+    const std::vector<float> f = semitones(300.0f, 5);
+    fckfft::DynamicTrackingResonatorBank bank;
+    CHECK(!bank.init(f.data(), f.size(), 48000.0f, static_cast<TrackingRule>(7)));
+    CHECK(!bank.isInitialized());
+    CHECK(bank.init(f.data(), f.size(), 48000.0f, TrackingRule::tangent, -40.0f));
+    CHECK(!bank.init(f.data(), f.size(), 48000.0f, static_cast<TrackingRule>(4)));
+    CHECK(bank.rule() == TrackingRule::tangent);
+    CHECK(!bank.setRule(static_cast<TrackingRule>(4)));
+    CHECK(bank.rule() == TrackingRule::tangent);
+    CHECK(!bank.setThresholdDb(check::fromBits(0x7FC00000u)));
+    CHECK(!bank.setThresholdDb(check::fromBits(0x7F800000u)));
+    CHECK_NEAR(bank.thresholdDb(), -40.0, 1e-4);
+    CHECK(!bank.setPowerTimeConstant(-1.0f));
+    CHECK(!bank.setPowerTimeConstant(check::fromBits(0x7F800000u)));
+    CHECK(!bank.setPowerTimeConstant(check::fromBits(0x7FC00000u)));
+    CHECK(bank.powerTimeConstant() == 0.0f);
+    CHECK(!bank.setAlpha(1, 0.0f));
+    CHECK(!bank.setAlpha(5, 0.01f));
+    CHECK(!bank.setBeta(1, 1.5f));
+    CHECK(!bank.setNaturalFrequency(1, 30000.0f));
+    CHECK(!bank.setNaturalFrequency(1, check::fromBits(0x7FC00000u)));
+    CHECK_NEAR(bank.naturalFrequency(1), f[1], 0.0);
+}
+
+TEST_CASE(tracking_init_keeps_power_time_constant)
+{
+    const std::vector<float> f = semitones(300.0f, 9);
+    const std::vector<float> x = signals::tone(4410, 44100.0, 452.0);
+    fckfft::DynamicTrackingResonatorBank reused, fresh;
+    CHECK(reused.setPowerTimeConstant(0.05f));
+    CHECK(reused.init(f.data(), f.size(), 48000.0f, TrackingRule::ewma));
+    CHECK(reused.init(f.data(), f.size(), 44100.0f, TrackingRule::ewma));
+    CHECK(fresh.init(f.data(), f.size(), 44100.0f, TrackingRule::ewma));
+    CHECK(fresh.setPowerTimeConstant(0.05f));
+    CHECK(reused.powerTimeConstant() == 0.05f);
+    reused.process(x.data(), x.size());
+    fresh.process(x.data(), x.size());
+    CHECK_SAME(reused.accumulatedPower(), fresh.accumulatedPower());
+}
+
+TEST_CASE(tracking_parameter_setters_reach_fresh_state)
+{
+    const std::vector<float> f = semitones(300.0f, 9);
+    const std::vector<float> x = signals::tone(48000, 48000.0, f[4], 0.8);
+    std::vector<float> alphas(f.size(), 0.01f), betas(f.size(), 0.02f);
+    for (TrackingRule rule : {TrackingRule::none, TrackingRule::normalizedChord})
+    {
+        fckfft::DynamicTrackingResonatorBank changed, fresh;
+        CHECK(changed.init(f.data(), alphas.data(), betas.data(), nullptr, f.size(), 48000.0f, rule));
+        changed.process(x.data(), 4800);
+        const float before = changed.magnitude(4);
+        CHECK(changed.setAlpha(4, 0.004f));
+        CHECK_NEAR(changed.magnitude(4), before, 0.0);
+        double deviation = 0.0;
+        for (std::size_t i = 4800; i < 5300; ++i)
+        {
+            changed.process(x[i]);
+            deviation = std::max(deviation, std::fabs(static_cast<double>(changed.magnitude(4)) - before));
+        }
+        if (rule == TrackingRule::none)
+            CHECK_NEAR(deviation, 0.0, 0.1 * before);
+        CHECK(changed.setBeta(4, 0.008f));
+        CHECK(changed.setNaturalFrequency(2, 330.0f));
+        changed.process(x.data() + 5300, x.size() - 5300);
+        alphas[4] = 0.004f;
+        betas[4] = 0.008f;
+        std::vector<float> natural = f;
+        natural[2] = 330.0f;
+        CHECK(fresh.init(natural.data(), alphas.data(), betas.data(), nullptr, f.size(), 48000.0f, rule));
+        fresh.process(x.data(), x.size());
+        alphas[4] = 0.01f;
+        betas[4] = 0.02f;
+        CHECK_NEAR(changed.naturalFrequency(2), 330.0, 0.0);
+        for (std::size_t k = 0; k < f.size(); ++k)
+        {
+            CHECK_NEAR(changed.magnitude(k), fresh.magnitude(k), 1e-3);
+            CHECK_NEAR(changed.resonantFrequency(k), fresh.resonantFrequency(k), 0.05);
+        }
     }
 }
 

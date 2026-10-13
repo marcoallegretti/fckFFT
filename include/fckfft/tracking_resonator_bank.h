@@ -115,9 +115,12 @@ public:
     float alpha(std::size_t k) const noexcept { return info_[size_ + k]; }
     float beta(std::size_t k) const noexcept { return info_[2 * size_ + k]; }
     float gamma(std::size_t k) const noexcept { return info_[3 * size_ + k]; }
+    float powerTimeConstant() const noexcept { return powerTimeConstant_; }
 
-    void setRule(TrackingRule rule) noexcept
+    bool setRule(TrackingRule rule) noexcept
     {
+        if (!validRule(rule))
+            return false;
         rule_ = rule;
         if (rule == TrackingRule::none)
             for (std::size_t k = 0; k < size_; ++k)
@@ -125,13 +128,61 @@ public:
                 field(k, Kernel::kWr) = field(k, Kernel::kNwr);
                 field(k, Kernel::kWi) = field(k, Kernel::kNwi);
             }
+        return true;
     }
 
-    void setThresholdDb(float db) noexcept { ratio_ = std::exp2(db * 0.332192809f); }
-
-    void setPowerTimeConstant(float seconds) noexcept
+    bool setThresholdDb(float db) noexcept
     {
+        if (!detail::finite(db))
+            return false;
+        ratio_ = std::exp2(db * 0.332192809f);
+        return true;
+    }
+
+    bool setPowerTimeConstant(float seconds) noexcept
+    {
+        if (!detail::finite(seconds) || seconds < 0.0f)
+            return false;
+        powerTimeConstant_ = seconds;
         sigma_ = seconds > 0.0f ? alphaFromTimeConstant(seconds, sampleRate_) : 1.0f;
+        return true;
+    }
+
+    bool setAlpha(std::size_t k, float a) noexcept
+    {
+        if (k >= size_ || !acceptableDecay(a))
+            return false;
+        const float ratio = alpha(k) / a;
+        info_[size_ + k] = a;
+        field(k, Kernel::kOa) = 1.0f - a;
+        field(k, Kernel::kAb) = a * beta(k);
+        field(k, Kernel::kUr) *= ratio;
+        field(k, Kernel::kUi) *= ratio;
+        return true;
+    }
+
+    bool setBeta(std::size_t k, float b) noexcept
+    {
+        if (k >= size_ || !acceptableDecay(b))
+            return false;
+        info_[2 * size_ + k] = b;
+        field(k, Kernel::kOb) = 1.0f - b;
+        field(k, Kernel::kAb) = alpha(k) * b;
+        return true;
+    }
+
+    bool setNaturalFrequency(std::size_t k, float f) noexcept
+    {
+        if (k >= size_ || !detail::validFrequency(f, sampleRate_))
+            return false;
+        info_[k] = f;
+        detail::phasorStep(f, sampleRate_, field(k, Kernel::kNwr), field(k, Kernel::kNwi));
+        if (rule_ == TrackingRule::none)
+        {
+            field(k, Kernel::kWr) = field(k, Kernel::kNwr);
+            field(k, Kernel::kWi) = field(k, Kernel::kNwi);
+        }
+        return true;
     }
 
     static bool validParameters(const float* frequencies, const float* alphas, const float* betas, const float* gammas,
@@ -239,6 +290,7 @@ private:
         renormalizations_ = other.renormalizations_;
         sampleRate_ = other.sampleRate_;
         sigma_ = other.sigma_;
+        powerTimeConstant_ = other.powerTimeConstant_;
         ratio_ = other.ratio_;
         accPower_ = other.accPower_;
         rule_ = other.rule_;
@@ -280,6 +332,10 @@ private:
         return groups_[((k / lanes_) * Kernel::kFields + static_cast<std::size_t>(f)) * lanes_ + k % lanes_];
     }
 
+protected:
+    static bool validRule(TrackingRule rule) noexcept { return static_cast<unsigned>(rule) < 4u; }
+
+private:
     static bool acceptableDecay(float decay) noexcept
     {
         return detail::inUnitInterval(decay)
@@ -290,7 +346,7 @@ private:
                   const float* betas, const float* gammas, std::size_t count, float sampleRate, TrackingRule rule,
                   float thresholdDb) noexcept
     {
-        if (storage == nullptr || count == 0 || storageCount < storageSize(count)
+        if (storage == nullptr || count == 0 || storageCount < storageSize(count) || !validRule(rule)
             || !validParameters(frequencies, alphas, betas, gammas, count, sampleRate, thresholdDb))
             return false;
         const detail::TrackingBackend& backend = detail::selectTrackingBackend();
@@ -303,7 +359,7 @@ private:
         numGroups_ = numGroups;
         sampleRate_ = sampleRate;
         rule_ = rule;
-        sigma_ = 1.0f;
+        sigma_ = powerTimeConstant_ > 0.0f ? alphaFromTimeConstant(powerTimeConstant_, sampleRate) : 1.0f;
         setThresholdDb(thresholdDb);
         for (std::size_t k = 0; k < paddedSize(); ++k)
         {
@@ -345,6 +401,7 @@ private:
     std::size_t renormalizations_ = 0;
     float sampleRate_ = 0.0f;
     float sigma_ = 1.0f;
+    float powerTimeConstant_ = 0.0f;
     float ratio_ = 1e-6f;
     float accPower_ = kInitialAccumulatedPower;
     TrackingRule rule_ = TrackingRule::ewma;
@@ -373,10 +430,14 @@ public:
     using TrackingResonatorBank::alpha;
     using TrackingResonatorBank::beta;
     using TrackingResonatorBank::gamma;
+    using TrackingResonatorBank::powerTimeConstant;
     using TrackingResonatorBank::setRule;
     using TrackingResonatorBank::setThresholdDb;
     using TrackingResonatorBank::setPowerTimeConstant;
     using TrackingResonatorBank::setGamma;
+    using TrackingResonatorBank::setAlpha;
+    using TrackingResonatorBank::setBeta;
+    using TrackingResonatorBank::setNaturalFrequency;
     using TrackingResonatorBank::value;
     using TrackingResonatorBank::power;
     using TrackingResonatorBank::magnitude;
@@ -395,7 +456,7 @@ public:
               std::size_t count, float sampleRate, TrackingRule rule = TrackingRule::ewma,
               float thresholdDb = -60.0f) noexcept(noexcept(std::declval<Storage&>().acquire(0)))
     {
-        if (!Storage::fits(storageSize(count))
+        if (!Storage::fits(storageSize(count)) || !validRule(rule)
             || !validParameters(frequencies, alphas, betas, gammas, count, sampleRate, thresholdDb))
             return false;
         float* storage = storage_.acquire(storageSize(count));
