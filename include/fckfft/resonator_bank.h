@@ -26,6 +26,24 @@ inline bool finite(float x)
     return (u & 0x7F800000u) != 0x7F800000u;
 }
 
+inline float mulAdd(float a, float b, float c)
+{
+#if defined(__FP_FAST_FMAF)
+    return std::fma(a, b, c);
+#else
+    return a * b + c;
+#endif
+}
+
+inline double mulAdd(double a, double b, double c)
+{
+#if defined(__FP_FAST_FMA)
+    return std::fma(a, b, c);
+#else
+    return a * b + c;
+#endif
+}
+
 inline bool inUnitInterval(float x)
 {
     return finite(x) && x > 0.0f && x <= 1.0f;
@@ -125,7 +143,7 @@ inline void turnSinCos(std::uint64_t turns, double& s, double& c)
 inline double poleDecay(float re, float im)
 {
     const double x = re, y = im;
-    return 1.0 - std::sqrt(x * x + y * y);
+    return 1.0 - std::sqrt(mulAdd(x, x, y * y));
 }
 
 struct Pole
@@ -435,14 +453,14 @@ private:
         detail::turnSinCos(increment(k) * (processed_ - 1) + offset(k), s, c);
         const float scale = info_[3 * size_ + k];
         const float re = scale * sr, im = scale * si;
-        return Complex{re * c + im * s, im * c - re * s};
+        return Complex{detail::mulAdd(re, c, im * s), detail::mulAdd(im, c, -(re * s))};
     }
 
     float readPower(std::size_t k, float sr, float si) const noexcept
     {
         const double scale = info_[3 * size_ + k];
         const double re = scale * sr, im = scale * si;
-        return static_cast<float>(re * re + im * im);
+        return static_cast<float>(detail::mulAdd(re, re, im * im));
     }
 
     float& field(std::size_t k, int f) noexcept

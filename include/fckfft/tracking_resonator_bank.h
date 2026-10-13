@@ -166,7 +166,7 @@ public:
     float power(std::size_t k) const noexcept
     {
         const float re = field(k, Kernel::kSr), im = field(k, Kernel::kSi);
-        return re * re + im * im;
+        return detail::mulAdd(re, re, im * im);
     }
 
     float magnitude(std::size_t k) const noexcept { return std::sqrt(power(k)); }
@@ -180,7 +180,7 @@ public:
 
     float instantaneousFrequency(std::size_t k) const noexcept
     {
-        return resonantFrequency(k) + deltaPhase(k) * (sampleRate_ * 0.159154943f);
+        return detail::mulAdd(deltaPhase(k), sampleRate_ * 0.159154943f, resonantFrequency(k));
     }
 
     void values(Complex* out) const noexcept
@@ -194,7 +194,7 @@ public:
     {
         forEach([&](std::size_t k, const float* g, std::size_t l) {
             const float re = g[Kernel::kSr * lanes_ + l], im = g[Kernel::kSi * lanes_ + l];
-            out[k] = re * re + im * im;
+            out[k] = detail::mulAdd(re, re, im * im);
         });
     }
 
@@ -202,7 +202,7 @@ public:
     {
         forEach([&](std::size_t k, const float* g, std::size_t l) {
             const float re = g[Kernel::kSr * lanes_ + l], im = g[Kernel::kSi * lanes_ + l];
-            out[k] = std::sqrt(re * re + im * im);
+            out[k] = std::sqrt(detail::mulAdd(re, re, im * im));
         });
     }
 
