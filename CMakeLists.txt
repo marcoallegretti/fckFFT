@@ -87,6 +87,12 @@ if(FCKFFT_BUILD_TESTS)
     endif()
     add_test(NAME fckfft_tests COMMAND fckfft_tests)
     set_tests_properties(fckfft_tests PROPERTIES TIMEOUT 600)
+    if(FCKFFT_TEST_MPS2_AN500)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        add_test(NAME fckfft_kernel_code
+            COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tests/mps2/check_kernels.py ${CMAKE_OBJDUMP}
+                    $<TARGET_FILE:fckfft_tests>)
+    endif()
 endif()
 
 if(FCKFFT_BUILD_BENCHMARKS AND NOT FCKFFT_TEST_MPS2_AN500)
