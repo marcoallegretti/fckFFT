@@ -648,7 +648,7 @@ class DynamicResonatorBank : public OwningResonatorBank<detail::VectorStorage>
 template <class Bank>
 std::size_t analyze(Bank& bank, const float* signal, std::size_t numSamples, std::size_t hop, Complex* frames) noexcept
 {
-    if (hop == 0)
+    if (hop == 0 || !bank.isInitialized())
         return 0;
     const std::size_t numFrames = numSamples / hop;
     for (std::size_t f = 0; f < numFrames; ++f)
@@ -656,6 +656,7 @@ std::size_t analyze(Bank& bank, const float* signal, std::size_t numSamples, std
         bank.process(signal + f * hop, hop);
         bank.values(frames + f * bank.size());
     }
+    bank.process(signal + numFrames * hop, numSamples - numFrames * hop);
     return numFrames;
 }
 

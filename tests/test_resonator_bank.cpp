@@ -316,6 +316,12 @@ TEST_CASE(bank_analyze_frames)
         for (std::size_t k = 0; k < f.size(); ++k)
             CHECK_NEAR(frames[frame * f.size() + k].re, b.value(k).re, 1e-6 * std::fabs(b.value(k).re));
     }
+    b.process(x.data() + 900, 100);
+    CHECK(a.samplesProcessed() == x.size() && b.samplesProcessed() == x.size());
+    for (std::size_t k = 0; k < f.size(); ++k)
+        CHECK_SAME(a.value(k).re, b.value(k).re);
+    fckfft::DynamicResonatorBank uninitialised;
+    CHECK(fckfft::analyze(uninitialised, x.data(), x.size(), 300, frames.data()) == 0);
 }
 
 TEST_CASE(bank_frequency_selectivity)
