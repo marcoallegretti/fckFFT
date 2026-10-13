@@ -28,6 +28,7 @@ endif()
 option(FCKFFT_BUILD_TESTS "Build the test suite" ${FCKFFT_TOP_LEVEL})
 option(FCKFFT_BUILD_BENCHMARKS "Build the benchmark" ${FCKFFT_TOP_LEVEL})
 option(FCKFFT_NO_SIMD "Use the portable scalar kernels" OFF)
+option(FCKFFT_NO_DISPATCH "Compile only the kernel selected by the build flags" OFF)
 option(FCKFFT_TEST_MPS2_AN500 "Link the tests for the QEMU mps2-an500 Cortex-M7 machine" OFF)
 option(FCKFFT_BUILD_FUZZERS "Build the libFuzzer targets (Clang)" OFF)
 
@@ -39,6 +40,9 @@ target_include_directories(fckfft INTERFACE
 target_compile_features(fckfft INTERFACE cxx_std_14)
 if(FCKFFT_NO_SIMD)
     target_compile_definitions(fckfft INTERFACE FCKFFT_NO_SIMD)
+endif()
+if(FCKFFT_NO_DISPATCH)
+    target_compile_definitions(fckfft INTERFACE FCKFFT_NO_DISPATCH)
 endif()
 
 if(FCKFFT_TOP_LEVEL)

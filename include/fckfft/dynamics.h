@@ -4,7 +4,10 @@
 #include <cmath>
 #include <cstddef>
 
+#include "simd.h"
+
 namespace fckfft {
+inline namespace FCKFFT_ABI {
 
 inline float alphaFromTimeConstant(float timeConstant, float sampleRate)
 {
@@ -54,6 +57,7 @@ inline void heuristicGammas(const float* frequencies, std::size_t count, float s
         gammas[i] = heuristicGamma(frequencies[i], sampleRate, k, n);
 }
 
+}
 }
 
 #endif

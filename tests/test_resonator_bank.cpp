@@ -162,7 +162,7 @@ TEST_CASE(bank_stride_matches_mono)
 
 TEST_CASE(bank_padding_lanes_are_inert)
 {
-    std::vector<float> all(3 * fckfft::ResonatorBank::kLanes + 1);
+    std::vector<float> all(3 * fckfft::ResonatorBank::kMaxLanes + 1);
     fckfft::logSpacedFrequencies(80.0f, 20000.0f, all.size(), all.data());
     const std::vector<float> x = signals::noise(3000, 11u);
     fckfft::DynamicResonatorBank full;

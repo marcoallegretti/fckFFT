@@ -11,223 +11,20 @@
 #include "simd.h"
 
 namespace fckfft {
-
-enum class TrackingRule
-{
-    none,
-    ewma,
-    normalizedChord,
-    tangent
-};
-
-namespace detail {
-
-template <class Ops>
-struct TrackingKernel
-{
-    using V = typename Ops::V;
-    enum Field
-    {
-        kOa,
-        kOb,
-        kAb,
-        kGm,
-        kOg,
-        kNwr,
-        kNwi,
-        kZr,
-        kZi,
-        kUr,
-        kUi,
-        kSr,
-        kSi,
-        kPr,
-        kPi,
-        kWr,
-        kWi,
-        kQr,
-        kQi,
-        kPw,
-        kFields
-    };
-    static constexpr std::size_t kWidth = Ops::width;
-    static constexpr std::size_t kLanes = 2 * kWidth;
-    static constexpr std::size_t kGroupFloats = kFields * kLanes;
-
-    static FCKFFT_INLINE V ld(const float* g, int f) { return Ops::load(g + static_cast<std::size_t>(f) * kLanes); }
-    static FCKFFT_INLINE void st(float* g, int f, V v) { Ops::store(g + static_cast<std::size_t>(f) * kLanes, v); }
-
-    static FCKFFT_INLINE V accumulate(float* g, V s, V zr, V zi)
-    {
-        const V oa = ld(g, kOa), ob = ld(g, kOb), ab = ld(g, kAb);
-        const V ur = Ops::madd(oa, ld(g, kUr), Ops::mul(s, zr));
-        const V ui = Ops::madd(oa, ld(g, kUi), Ops::mul(s, zi));
-        const V sr = Ops::madd(ob, ld(g, kSr), Ops::mul(ab, ur));
-        const V si = Ops::madd(ob, ld(g, kSi), Ops::mul(ab, ui));
-        const V pw = Ops::madd(sr, sr, Ops::mul(si, si));
-        st(g, kUr, ur);
-        st(g, kUi, ui);
-        st(g, kSr, sr);
-        st(g, kSi, si);
-        st(g, kPw, pw);
-        return pw;
-    }
-
-    static FCKFFT_INLINE V accumulate(float* g, V s) { return accumulate(g, s, ld(g, kZr), ld(g, kZi)); }
-
-    static FCKFFT_INLINE void renormalize(V& re, V& im)
-    {
-        const V m = Ops::madd(re, re, Ops::mul(im, im));
-        const V k = Ops::nmadd(Ops::set(0.5f), m, Ops::set(1.5f));
-        re = Ops::mul(re, k);
-        im = Ops::mul(im, k);
-    }
-
-    template <TrackingRule Rule>
-    static FCKFFT_INLINE void track(float* g, V threshold, bool renorm, V& zr, V& zi)
-    {
-        const V sr = ld(g, kSr), si = ld(g, kSi);
-        const V pr = ld(g, kPr), pi = ld(g, kPi);
-        const V dr = Ops::madd(sr, pr, Ops::mul(si, pi));
-        const V di = Ops::nmadd(si, pr, Ops::mul(sr, pi));
-        const V gm = ld(g, kGm), og = ld(g, kOg);
-        st(g, kPr, sr);
-        st(g, kPi, si);
-        st(g, kQr, Ops::madd(og, ld(g, kQr), Ops::mul(gm, dr)));
-        st(g, kQi, Ops::madd(og, ld(g, kQi), Ops::mul(gm, di)));
-        V wr = ld(g, kWr), wi = ld(g, kWi);
-        if (Rule != TrackingRule::none)
-        {
-            V cr, ci;
-            if (Rule == TrackingRule::ewma)
-            {
-                simd::sincos<Ops>(Ops::mul(gm, simd::atan2<Ops>(di, dr)), ci, cr);
-            }
-            else
-            {
-                const V dd = Ops::madd(dr, dr, Ops::mul(di, di));
-                const V valid = Ops::set(1e-20f);
-                const V gi = Ops::mul(gm, Ops::rsqrt(Ops::max(dd, valid)));
-                if (Rule == TrackingRule::normalizedChord)
-                    cr = Ops::madd(gi, dr, og);
-                else
-                    cr = Ops::set(1.0f);
-                ci = Ops::mul(gi, di);
-                cr = Ops::selectGe(dd, valid, cr, Ops::set(1.0f));
-                ci = Ops::selectGe(dd, valid, ci, Ops::set(0.0f));
-            }
-            V tr = Ops::nmadd(wi, ci, Ops::mul(wr, cr));
-            V ti = Ops::madd(wr, ci, Ops::mul(wi, cr));
-            if (Rule != TrackingRule::ewma)
-                renormalize(tr, ti);
-            const V pw = ld(g, kPw);
-            wr = Ops::selectGe(pw, threshold, tr, ld(g, kNwr));
-            wi = Ops::selectGe(pw, threshold, ti, ld(g, kNwi));
-        }
-        const V z0 = ld(g, kZr), z1 = ld(g, kZi);
-        zr = Ops::nmadd(z1, wi, Ops::mul(z0, wr));
-        zi = Ops::madd(z0, wi, Ops::mul(z1, wr));
-        if (renorm)
-        {
-            renormalize(zr, zi);
-            renormalize(wr, wi);
-        }
-        st(g, kZr, zr);
-        st(g, kZi, zi);
-        st(g, kWr, wr);
-        st(g, kWi, wi);
-    }
-
-    static void sanitize(float* groups, std::size_t numGroups)
-    {
-        const V zero = Ops::set(0.0f);
-        for (std::size_t g = 0; g < numGroups; ++g)
-            for (std::size_t half = 0; half < 2; ++half)
-            {
-                float* base = groups + g * kGroupFloats + half * kWidth;
-                V t = zero;
-                for (int f = kZr; f < kFields; ++f)
-                    t = Ops::madd(ld(base, f), zero, t);
-                float lanes[kWidth];
-                Ops::store(lanes, t);
-                bool finite = true;
-                for (std::size_t l = 0; l < kWidth; ++l)
-                    finite = finite && lanes[l] == 0.0f;
-                if (finite)
-                    continue;
-                for (int f = kZr; f < kFields; ++f)
-                {
-                    V reset = zero;
-                    if (f == kZr)
-                        reset = Ops::set(1.0f);
-                    else if (f == kWr)
-                        reset = ld(base, kNwr);
-                    else if (f == kWi)
-                        reset = ld(base, kNwi);
-                    st(base, f, Ops::selectGe(t, zero, ld(base, f), reset));
-                }
-            }
-    }
-
-    template <TrackingRule Rule>
-    static void process(float* groups, std::size_t numGroups, const float* x, std::size_t n, std::size_t stride,
-                        bool renormalizeAtEnd, float sigma, float ratio, float& accPower)
-    {
-        const float omSigma = 1.0f - sigma;
-        V peak = Ops::set(0.0f);
-        {
-            const V s = Ops::set(x[0]);
-            for (std::size_t g = 0; g < numGroups; ++g)
-            {
-                float* base = groups + g * kGroupFloats;
-                const V pa = accumulate(base, s);
-                const V pb = accumulate(base + kWidth, s);
-                peak = Ops::max(peak, Ops::max(pa, pb));
-            }
-        }
-        for (std::size_t i = 1; i < n; ++i)
-        {
-            accPower = omSigma * accPower + sigma * Ops::reduceMax(peak);
-            const V threshold = Ops::set(accPower * ratio);
-            const V s = Ops::set(x[i * stride]);
-            peak = Ops::set(0.0f);
-            for (std::size_t g = 0; g < numGroups; ++g)
-            {
-                float* base = groups + g * kGroupFloats;
-                V zra, zia, zrb, zib;
-                track<Rule>(base, threshold, false, zra, zia);
-                track<Rule>(base + kWidth, threshold, false, zrb, zib);
-                const V pa = accumulate(base, s, zra, zia);
-                const V pb = accumulate(base + kWidth, s, zrb, zib);
-                peak = Ops::max(peak, Ops::max(pa, pb));
-            }
-        }
-        accPower = omSigma * accPower + sigma * Ops::reduceMax(peak);
-        const V threshold = Ops::set(accPower * ratio);
-        for (std::size_t g = 0; g < numGroups; ++g)
-        {
-            float* base = groups + g * kGroupFloats;
-            V zr, zi;
-            track<Rule>(base, threshold, renormalizeAtEnd, zr, zi);
-            track<Rule>(base + kWidth, threshold, renormalizeAtEnd, zr, zi);
-        }
-    }
-};
-
-}
+inline namespace FCKFFT_ABI {
 
 class TrackingResonatorBank
 {
 public:
-    using Kernel = detail::TrackingKernel<simd::NativeOps>;
-    static constexpr std::size_t kLanes = Kernel::kLanes;
+    using Kernel = detail::TrackingLayout;
+    static constexpr std::size_t kMaxLanes = detail::kMaxTrackingLanes;
     static constexpr std::size_t kNormalizeInterval = 32;
     static constexpr std::size_t kSanitizeEvery = 4;
     static constexpr float kInitialAccumulatedPower = 0.0001f;
 
     static constexpr std::size_t storageSize(std::size_t numResonators) noexcept
     {
-        return ((numResonators + kLanes - 1) / kLanes) * Kernel::kGroupFloats + 4 * numResonators;
+        return ((numResonators + kMaxLanes - 1) / kMaxLanes) * Kernel::kFields * kMaxLanes + 4 * numResonators;
     }
 
     TrackingResonatorBank() = default;
@@ -293,7 +90,7 @@ public:
             processChunk(input, n, stride, renormalize);
             if (renormalize && ++renormalizations_ % kSanitizeEvery == 0)
             {
-                Kernel::sanitize(groups_, numGroups_);
+                backend_->sanitize(groups_, numGroups_);
                 if (!std::isfinite(accPower_))
                     accPower_ = kInitialAccumulatedPower;
             }
@@ -307,6 +104,8 @@ public:
 
     bool isInitialized() const noexcept { return numGroups_ != 0; }
     std::size_t size() const noexcept { return size_; }
+    std::size_t lanes() const noexcept { return lanes_; }
+    Isa isa() const noexcept { return backend_->isa; }
     float sampleRate() const noexcept { return sampleRate_; }
     TrackingRule rule() const noexcept { return rule_; }
     float thresholdDb() const noexcept { return static_cast<float>(10.0 * std::log10(static_cast<double>(ratio_))); }
@@ -424,6 +223,8 @@ public:
 private:
     void take(TrackingResonatorBank& other) noexcept
     {
+        backend_ = other.backend_;
+        lanes_ = other.lanes_;
         groups_ = other.groups_;
         info_ = other.info_;
         size_ = other.size_;
@@ -445,37 +246,20 @@ private:
 
     void processChunk(const float* input, std::size_t n, std::size_t stride, bool renormalize) noexcept
     {
-        switch (rule_)
-        {
-        case TrackingRule::none:
-            Kernel::process<TrackingRule::none>(groups_, numGroups_, input, n, stride, renormalize, sigma_, ratio_,
-                                                accPower_);
-            break;
-        case TrackingRule::ewma:
-            Kernel::process<TrackingRule::ewma>(groups_, numGroups_, input, n, stride, renormalize, sigma_, ratio_,
-                                                accPower_);
-            break;
-        case TrackingRule::normalizedChord:
-            Kernel::process<TrackingRule::normalizedChord>(groups_, numGroups_, input, n, stride, renormalize, sigma_,
-                                                           ratio_, accPower_);
-            break;
-        case TrackingRule::tangent:
-            Kernel::process<TrackingRule::tangent>(groups_, numGroups_, input, n, stride, renormalize, sigma_, ratio_,
-                                                   accPower_);
-            break;
-        }
+        backend_->tracking[static_cast<int>(rule_)](groups_, numGroups_, input, n, stride, renormalize, sigma_, ratio_,
+                                                     accPower_);
     }
 
-    std::size_t paddedSize() const noexcept { return numGroups_ * kLanes; }
+    std::size_t paddedSize() const noexcept { return numGroups_ * lanes_; }
 
     float& field(std::size_t k, int f) noexcept
     {
-        return groups_[(k / kLanes) * Kernel::kGroupFloats + static_cast<std::size_t>(f) * kLanes + k % kLanes];
+        return groups_[((k / lanes_) * Kernel::kFields + static_cast<std::size_t>(f)) * lanes_ + k % lanes_];
     }
 
     const float& field(std::size_t k, int f) const noexcept
     {
-        return groups_[(k / kLanes) * Kernel::kGroupFloats + static_cast<std::size_t>(f) * kLanes + k % kLanes];
+        return groups_[((k / lanes_) * Kernel::kFields + static_cast<std::size_t>(f)) * lanes_ + k % lanes_];
     }
 
     static bool acceptableDecay(float decay) noexcept
@@ -491,9 +275,12 @@ private:
         if (storage == nullptr || count == 0 || storageCount < storageSize(count)
             || !validParameters(frequencies, alphas, betas, gammas, count, sampleRate, thresholdDb))
             return false;
-        const std::size_t numGroups = (count + kLanes - 1) / kLanes;
+        const detail::Backend& backend = detail::selectBackend();
+        const std::size_t numGroups = (count + backend.trackingLanes - 1) / backend.trackingLanes;
+        backend_ = &backend;
+        lanes_ = backend.trackingLanes;
         groups_ = storage;
-        info_ = storage + numGroups * Kernel::kGroupFloats;
+        info_ = storage + numGroups * Kernel::kFields * lanes_;
         size_ = count;
         numGroups_ = numGroups;
         sampleRate_ = sampleRate;
@@ -530,6 +317,8 @@ private:
         return true;
     }
 
+    const detail::Backend* backend_ = &detail::baseline::kBackend;
+    std::size_t lanes_ = detail::baseline::kBackend.trackingLanes;
     float* groups_ = nullptr;
     float* info_ = nullptr;
     std::size_t size_ = 0;
@@ -547,7 +336,7 @@ template <class Storage>
 class OwningTrackingResonatorBank : private TrackingResonatorBank
 {
 public:
-    using TrackingResonatorBank::kLanes;
+    using TrackingResonatorBank::kMaxLanes;
     using TrackingResonatorBank::kNormalizeInterval;
     using TrackingResonatorBank::kInitialAccumulatedPower;
     using TrackingResonatorBank::storageSize;
@@ -556,6 +345,8 @@ public:
     using TrackingResonatorBank::process;
     using TrackingResonatorBank::isInitialized;
     using TrackingResonatorBank::size;
+    using TrackingResonatorBank::lanes;
+    using TrackingResonatorBank::isa;
     using TrackingResonatorBank::sampleRate;
     using TrackingResonatorBank::rule;
     using TrackingResonatorBank::thresholdDb;
@@ -617,6 +408,7 @@ class DynamicTrackingResonatorBank : public OwningTrackingResonatorBank<detail::
 {
 };
 
+}
 }
 
 #endif

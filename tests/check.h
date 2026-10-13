@@ -45,6 +45,7 @@ inline void failNear(const char* file, int line, const char* expr, double a, dou
 inline int run()
 {
     int failedCases = 0;
+    failures() = 0;
     for (const Case& c : cases())
     {
         const int before = failures();

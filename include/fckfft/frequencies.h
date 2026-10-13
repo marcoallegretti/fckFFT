@@ -4,7 +4,10 @@
 #include <cmath>
 #include <cstddef>
 
+#include "simd.h"
+
 namespace fckfft {
+inline namespace FCKFFT_ABI {
 
 inline float midiToHz(float note, float tuning = 440.0f)
 {
@@ -96,6 +99,7 @@ inline void melFrequencies(float minFrequency, float maxFrequency, std::size_t c
     out[count - 1] = maxFrequency;
 }
 
+}
 }
 
 #endif

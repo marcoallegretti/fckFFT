@@ -11,12 +11,7 @@
 #include "simd.h"
 
 namespace fckfft {
-
-struct Complex
-{
-    float re;
-    float im;
-};
+inline namespace FCKFFT_ABI {
 
 namespace detail {
 
@@ -64,141 +59,6 @@ inline void phasorStep(float frequency, float sampleRate, float& c, float& s)
     s = static_cast<float>(std::sin(omega));
 }
 
-template <class Ops>
-struct BankKernel
-{
-    using V = typename Ops::V;
-    enum Field
-    {
-        kCr,
-        kCi,
-        kDr,
-        kDi,
-        kVr,
-        kVi,
-        kSr,
-        kSi,
-        kFields
-    };
-    static constexpr std::size_t kWidth = Ops::width;
-    static constexpr std::size_t kPacks = 3;
-    static constexpr std::size_t kLanes = kPacks * kWidth;
-    static constexpr std::size_t kGroupFloats = kFields * kLanes;
-
-    struct Pack
-    {
-        V cr[kPacks], ci[kPacks], dr[kPacks], di[kPacks], vr[kPacks], vi[kPacks], sr[kPacks], si[kPacks];
-    };
-
-    static FCKFFT_INLINE void loadOne(Pack& p, std::size_t j, const float* g)
-    {
-        p.cr[j] = Ops::load(g + kCr * kLanes);
-        p.ci[j] = Ops::load(g + kCi * kLanes);
-        p.dr[j] = Ops::load(g + kDr * kLanes);
-        p.di[j] = Ops::load(g + kDi * kLanes);
-        p.vr[j] = Ops::load(g + kVr * kLanes);
-        p.vi[j] = Ops::load(g + kVi * kLanes);
-        p.sr[j] = Ops::load(g + kSr * kLanes);
-        p.si[j] = Ops::load(g + kSi * kLanes);
-    }
-
-    static FCKFFT_INLINE void storeOne(const Pack& p, std::size_t j, float* g)
-    {
-        Ops::store(g + kVr * kLanes, p.vr[j]);
-        Ops::store(g + kVi * kLanes, p.vi[j]);
-        Ops::store(g + kSr * kLanes, p.sr[j]);
-        Ops::store(g + kSi * kLanes, p.si[j]);
-    }
-
-    static FCKFFT_INLINE void load(Pack& p, const float* g)
-    {
-        loadOne(p, 0, g);
-        loadOne(p, 1, g + kWidth);
-        loadOne(p, 2, g + 2 * kWidth);
-    }
-
-    static FCKFFT_INLINE void store(const Pack& p, float* g)
-    {
-        storeOne(p, 0, g);
-        storeOne(p, 1, g + kWidth);
-        storeOne(p, 2, g + 2 * kWidth);
-    }
-
-    static FCKFFT_INLINE void stepOne(Pack& p, std::size_t j, V x, std::false_type)
-    {
-        const V t = Ops::nmadd(p.ci[j], p.vi[j], x);
-        p.vi[j] = Ops::madd(p.cr[j], p.vi[j], Ops::mul(p.ci[j], p.vr[j]));
-        p.vr[j] = Ops::madd(p.cr[j], p.vr[j], t);
-        const V u = Ops::nmadd(p.di[j], p.si[j], p.vr[j]);
-        p.si[j] = Ops::madd(p.dr[j], p.si[j], Ops::madd(p.di[j], p.sr[j], p.vi[j]));
-        p.sr[j] = Ops::madd(p.dr[j], p.sr[j], u);
-    }
-
-    static FCKFFT_INLINE void stepOne(Pack& p, std::size_t j, V x, std::true_type)
-    {
-        const V vi = Ops::madd(p.cr[j], p.vi[j], Ops::mul(p.ci[j], p.vr[j]));
-        const V vr = Ops::sub(Ops::mul(p.cr[j], p.vr[j]), Ops::mul(p.ci[j], p.vi[j]));
-        p.vr[j] = Ops::add(vr, x);
-        p.vi[j] = vi;
-        const V si = Ops::madd(p.dr[j], p.si[j], Ops::mul(p.di[j], p.sr[j]));
-        const V sr = Ops::sub(Ops::mul(p.dr[j], p.sr[j]), Ops::mul(p.di[j], p.si[j]));
-        p.sr[j] = Ops::add(sr, p.vr[j]);
-        p.si[j] = Ops::add(si, p.vi[j]);
-    }
-
-    static FCKFFT_INLINE void step(Pack& p, V x)
-    {
-        const std::integral_constant<bool, kWidth == 1> scalar{};
-        stepOne(p, 0, x, scalar);
-        stepOne(p, 1, x, scalar);
-        stepOne(p, 2, x, scalar);
-    }
-
-    static FCKFFT_INLINE void sanitizeOne(Pack& p, std::size_t j)
-    {
-        const V zero = Ops::set(0.0f);
-        V t = Ops::mul(p.vr[j], zero);
-        t = Ops::madd(p.vi[j], zero, t);
-        t = Ops::madd(p.sr[j], zero, t);
-        t = Ops::madd(p.si[j], zero, t);
-        p.vr[j] = Ops::selectGe(t, zero, p.vr[j], zero);
-        p.vi[j] = Ops::selectGe(t, zero, p.vi[j], zero);
-        p.sr[j] = Ops::selectGe(t, zero, p.sr[j], zero);
-        p.si[j] = Ops::selectGe(t, zero, p.si[j], zero);
-    }
-
-    static FCKFFT_INLINE void sanitize(Pack& p)
-    {
-        sanitizeOne(p, 0);
-        sanitizeOne(p, 1);
-        sanitizeOne(p, 2);
-    }
-
-    static void process(float* groups, std::size_t numGroups, const float* x, std::size_t n, std::size_t stride,
-                        bool sanitizeAtEnd)
-    {
-        for (std::size_t g = 0; g < numGroups; ++g)
-        {
-            float* base = groups + g * kGroupFloats;
-            Pack a;
-            load(a, base);
-            const float* in = x;
-            std::size_t i = 0;
-            for (; i + 2 <= n; i += 2)
-            {
-                step(a, Ops::set(in[0]));
-                step(a, Ops::set(in[stride]));
-                in += 2 * stride;
-            }
-            if (i < n)
-                step(a, Ops::set(in[0]));
-            if (sanitizeAtEnd)
-                sanitize(a);
-            store(a, base);
-        }
-    }
-};
-
 inline void rotation(double frequency, double sampleRate, unsigned long long samples, double& c, double& s)
 {
     if (samples == 0)
@@ -218,13 +78,13 @@ inline void rotation(double frequency, double sampleRate, unsigned long long sam
 class ResonatorBank
 {
 public:
-    using Kernel = detail::BankKernel<simd::NativeOps>;
-    static constexpr std::size_t kLanes = Kernel::kLanes;
+    using Kernel = detail::BankLayout;
+    static constexpr std::size_t kMaxLanes = detail::kMaxBankLanes;
     static constexpr std::size_t kRecoveryInterval = 128;
 
     static constexpr std::size_t storageSize(std::size_t numResonators) noexcept
     {
-        return ((numResonators + kLanes - 1) / kLanes) * Kernel::kGroupFloats + 4 * numResonators;
+        return ((numResonators + kMaxLanes - 1) / kMaxLanes) * Kernel::kFields * kMaxLanes + 4 * numResonators;
     }
 
     ResonatorBank() = default;
@@ -281,7 +141,7 @@ public:
             const std::size_t due = kRecoveryInterval - sinceCheck_;
             const std::size_t n = numSamples < due ? numSamples : due;
             const bool check = n == due;
-            Kernel::process(groups_, numGroups_, input, n, stride, check);
+            backend_->bank(groups_, numGroups_, input, n, stride, check);
             sinceCheck_ = check ? 0 : sinceCheck_ + n;
             input += n * stride;
             numSamples -= n;
@@ -292,6 +152,8 @@ public:
 
     bool isInitialized() const noexcept { return numGroups_ != 0; }
     std::size_t size() const noexcept { return size_; }
+    std::size_t lanes() const noexcept { return lanes_; }
+    Isa isa() const noexcept { return backend_->isa; }
     float sampleRate() const noexcept { return sampleRate_; }
     unsigned long long samplesProcessed() const noexcept { return processed_; }
     float frequency(std::size_t k) const noexcept { return info_[k]; }
@@ -409,6 +271,8 @@ public:
 private:
     void take(ResonatorBank& other) noexcept
     {
+        backend_ = other.backend_;
+        lanes_ = other.lanes_;
         groups_ = other.groups_;
         info_ = other.info_;
         size_ = other.size_;
@@ -424,16 +288,16 @@ private:
         other.sinceCheck_ = 0;
     }
 
-    std::size_t paddedSize() const noexcept { return numGroups_ * kLanes; }
+    std::size_t paddedSize() const noexcept { return numGroups_ * lanes_; }
 
     float& field(std::size_t k, int f) noexcept
     {
-        return groups_[(k / kLanes) * Kernel::kGroupFloats + static_cast<std::size_t>(f) * kLanes + k % kLanes];
+        return groups_[((k / lanes_) * Kernel::kFields + static_cast<std::size_t>(f)) * lanes_ + k % lanes_];
     }
 
     const float& field(std::size_t k, int f) const noexcept
     {
-        return groups_[(k / kLanes) * Kernel::kGroupFloats + static_cast<std::size_t>(f) * kLanes + k % kLanes];
+        return groups_[((k / lanes_) * Kernel::kFields + static_cast<std::size_t>(f)) * lanes_ + k % lanes_];
     }
 
     double effectiveAlpha(std::size_t k) const noexcept
@@ -459,9 +323,12 @@ private:
         if (storage == nullptr || count == 0 || storageCount < storageSize(count)
             || !validParameters(frequencies, alphas, betas, count, sampleRate))
             return false;
-        const std::size_t numGroups = (count + kLanes - 1) / kLanes;
+        const detail::Backend& backend = detail::selectBackend();
+        const std::size_t numGroups = (count + backend.bankLanes - 1) / backend.bankLanes;
+        backend_ = &backend;
+        lanes_ = backend.bankLanes;
         groups_ = storage;
-        info_ = storage + numGroups * Kernel::kGroupFloats;
+        info_ = storage + numGroups * Kernel::kFields * lanes_;
         size_ = count;
         numGroups_ = numGroups;
         sampleRate_ = sampleRate;
@@ -480,6 +347,8 @@ private:
         return true;
     }
 
+    const detail::Backend* backend_ = &detail::baseline::kBackend;
+    std::size_t lanes_ = detail::baseline::kBackend.bankLanes;
     float* groups_ = nullptr;
     float* info_ = nullptr;
     std::size_t size_ = 0;
@@ -526,7 +395,7 @@ template <class Storage>
 class OwningResonatorBank : private ResonatorBank
 {
 public:
-    using ResonatorBank::kLanes;
+    using ResonatorBank::kMaxLanes;
     using ResonatorBank::kRecoveryInterval;
     using ResonatorBank::storageSize;
     using ResonatorBank::validParameters;
@@ -534,6 +403,8 @@ public:
     using ResonatorBank::process;
     using ResonatorBank::isInitialized;
     using ResonatorBank::size;
+    using ResonatorBank::lanes;
+    using ResonatorBank::isa;
     using ResonatorBank::sampleRate;
     using ResonatorBank::samplesProcessed;
     using ResonatorBank::frequency;
@@ -603,6 +474,7 @@ std::size_t analyze(Bank& bank, const float* signal, std::size_t numSamples, std
     return numFrames;
 }
 
+}
 }
 
 #endif

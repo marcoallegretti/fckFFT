@@ -94,8 +94,16 @@ int main(int argc, char** argv)
     }
 
     const std::vector<float> x = testSignal(static_cast<std::size_t>(kSampleRate / 4));
-    std::printf("fixed lanes %zu, tracking lanes %zu, sample rate %.0f Hz, median of %d runs\n",
-                fckfft::ResonatorBank::kLanes, fckfft::TrackingResonatorBank::kLanes, kSampleRate, repetitions);
+    {
+        const float probe = 440.0f;
+        fckfft::DynamicResonatorBank fixed;
+        fckfft::DynamicTrackingResonatorBank tracking;
+        fixed.init(&probe, 1, kSampleRate);
+        tracking.init(&probe, 1, kSampleRate);
+        static const char* const isaNames[] = {"scalar", "sse2", "avx", "avx2", "avx512", "neon"};
+        std::printf("%s kernels, fixed lanes %zu, tracking lanes %zu, sample rate %.0f Hz, median of %d runs\n",
+                    isaNames[static_cast<int>(fixed.isa())], fixed.lanes(), tracking.lanes(), kSampleRate, repetitions);
+    }
     std::printf("%-10s %6s %6s %12s %10s %10s %10s\n", "kernel", "bins", "block", "ns/sample", "ns/bin", "Msamples/s",
                 "realtime");
     for (std::size_t bins : binCounts)
