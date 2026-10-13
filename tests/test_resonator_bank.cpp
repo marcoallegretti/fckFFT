@@ -455,8 +455,8 @@ TEST_CASE(bank_matches_double_model_on_random_configurations)
             worstComplex = std::max(worstComplex, std::max(std::fabs(v.re - sr2), std::fabs(v.im - si)));
         }
     }
-    CHECK_NEAR(worst, 0.0, 1e-5);
-    CHECK_NEAR(worstComplex, 0.0, 1e-5);
+    CHECK_NEAR(worst, 0.0, 2e-6);
+    CHECK_NEAR(worstComplex, 0.0, 2e-6);
 }
 
 TEST_CASE(bank_bandwidth_helpers_hit_minus_three_decibels)
