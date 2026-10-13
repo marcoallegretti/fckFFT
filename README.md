@@ -80,7 +80,10 @@ float estimate = bank.instantaneousFrequency(k);
 Resonators retune only while their power is within `thresholdDb` of the strongest
 resonator in the bank, and return to their natural frequency below it.
 `setPowerTimeConstant` smooths the reference power, and `gamma` (by default
-`alpha / 2`) sets the tracking rate.
+`alpha / 2`) sets the tracking rate. Keep `gamma` at or below `alpha`: up to there,
+every rule follows a double-precision model of the same algorithm, while at 1.5–2 ×
+`alpha` the tracking loop amplifies rounding differences into frequency errors of
+hundreds of Hz.
 
 ## Integration
 
@@ -260,8 +263,8 @@ Intel Xeon @ 2.1 GHz (shared virtual machine), 48 kHz, 48-sample blocks,
 | fixed, 440 | 204 | 85 | 53 |
 | fixed, 880 | 424 | 170 | 96 |
 | tracking `none`, 88 | 97 | 57 | 24 |
-| tracking chord, 88 | 295 | 158 | 106 |
-| tracking tangent, 88 | 307 | 126 | 102 |
+| tracking chord, 88 | 279 | 134 | 102 |
+| tracking tangent, 88 | 341 | 118 | 98 |
 | tracking EWMA, 88 | 572 | 273 | 160 |
 
 On the same machine and instruction set (AVX2 + FMA), the Rust
@@ -318,7 +321,7 @@ loops that GCC generates with libDaisy's flags. These are model estimates; run
 |---|---|---|
 | fixed | 15.8 | 88 bins: 14%, 256 bins: 40% |
 | tracking `none` | ~50 | 49 bins: 24% |
-| tracking tangent / chord | ~159 / ~164 | 32 bins: ~52% |
+| tracking tangent / chord | ~211 / ~215 | 32 bins: ~68% |
 | tracking EWMA | ~233 | 32 bins: ~75% |
 
 On this model, the reference loop order (every sample streams every resonator's
@@ -345,7 +348,8 @@ model:
 - **Phasor-step magnitude.** The chord and tangent updates change the magnitude of
   the phasor step. Left unnormalised (as in the reference), this caused magnitude
   errors up to 0.22 and frequency errors up to 255 Hz in the chord rule. fckFFT
-  renormalises the step after each update.
+  normalises the step exactly after each update; a single Newton step is not enough
+  at wide bandwidths, where it left magnitude errors of 0.44 at `alpha` = 0.5.
 - **Power smoothing.** The reference C++ tracking bank leaves its power-smoothing
   coefficient uninitialised. It defaults to 1 (no smoothing), as in the Swift version.
 - **Vector edge cases.** The reference NEON threshold merge writes its scalar tail
