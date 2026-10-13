@@ -26,6 +26,19 @@ jobs:
       - run: lscpu | grep -E 'Model name|Flags' | cut -c1-200
       - run: ./build/fckfft_bench --bins 88,880 --blocks 48 --repetitions 9
 
+  fast-math:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+        flags: ["", "-march=x86-64-v3", "-DFCKFFT_NO_SIMD"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DFCKFFT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_FLAGS="-ffast-math ${{ matrix.flags }}"
+      - run: cmake --build build --parallel
+      - run: ctest --test-dir build --output-on-failure
+
   sanitizers:
     runs-on: ubuntu-24.04
     strategy:
@@ -61,7 +74,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        flags: ["", "/arch:AVX2"]
+        flags: ["", "/arch:AVX2", "/fp:fast"]
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DCMAKE_CXX_FLAGS="/EHsc ${{ matrix.flags }}"
@@ -93,6 +106,10 @@ jobs:
           - packages: g++-arm-linux-gnueabihf
             compiler: arm-linux-gnueabihf-g++
             flags: "-mcpu=cortex-a8 -mfpu=neon -mfloat-abi=hard"
+            emulator: qemu-arm
+          - packages: g++-arm-linux-gnueabihf
+            compiler: arm-linux-gnueabihf-g++
+            flags: "-mcpu=cortex-a8 -mfpu=vfpv3 -mfloat-abi=hard -DFCKFFT_NO_SIMD -ffast-math"
             emulator: qemu-arm
     steps:
       - uses: actions/checkout@v4

@@ -217,8 +217,13 @@ about 100× after one second of silence.
 
 **Invalid input.** A NaN or infinite input sample corrupts the resonators for at most
 128 samples: at the next 128-sample check, every resonator whose state is
-not finite is reset, and the rest are untouched. Recovery relies on IEEE
-semantics, so do not compile with `-ffinite-math-only` or `-ffast-math`.
+not finite is reset, and the rest are untouched. The check reads the exponent bits
+instead of relying on IEEE comparisons, so recovery and parameter validation also work
+when the code is compiled with `-ffast-math`, as the test suite verifies with GCC and
+Clang on x86, AArch64, 32-bit ARM and the Cortex-M7. Fast-math does give up
+bit-for-bit reproducibility: results that are otherwise identical across block sizes,
+and between the bulk and the per-resonator read-outs, then differ by rounding (in the
+test suite, by less than 1e-5 relative plus 1e-7 absolute).
 
 **Errors.** No function throws, except the `init` of the `Dynamic` banks, which can
 throw `std::bad_alloc` from `std::vector`. Every other member is `noexcept`. `init`

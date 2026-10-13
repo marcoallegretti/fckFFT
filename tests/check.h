@@ -46,7 +46,7 @@ inline void failNear(const char* file, int line, const char* expr, double a, dou
 
 inline double sameTolerance(double reference)
 {
-#if defined(__FAST_MATH__)
+#if defined(__FAST_MATH__) || defined(_M_FP_FAST)
     return 1e-5 * std::fabs(reference) + 1e-7;
 #else
     (void)reference;
