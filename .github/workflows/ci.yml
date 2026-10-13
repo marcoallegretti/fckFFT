@@ -141,6 +141,7 @@ jobs:
       - run: git clone --depth 1 --branch v9.0.0 --recurse-submodules --shallow-submodules https://github.com/electro-smith/libDaisy ../libDaisy
       - run: make -C ../libDaisy -j4
       - run: make -C examples/daisy/benchmark
+      - run: make -C examples/daisy/benchmark clean && make -C examples/daisy/benchmark BOARD=patch_sm
       - run: make -C examples/daisy/tuner
 
   juce:

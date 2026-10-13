@@ -112,10 +112,23 @@ Place banks in DTCM for deterministic, zero-wait-state access:
 DTCM_MEM_SECTION fckfft::StaticResonatorBank<128> bank;
 ```
 
-`examples/daisy/benchmark` measures every kernel on the device with the DWT cycle
-counter and prints the results over USB serial. `examples/daisy/tuner` is a
-chromatic tuner that uses the tracking bank's instantaneous frequency estimate.
-Build either one with `make LIBDAISY_DIR=/path/to/libDaisy`.
+`examples/daisy/tuner` is a chromatic tuner that uses the tracking bank's
+instantaneous frequency estimate. `examples/daisy/benchmark` measures the library on
+the device with the DWT cycle counter, with interrupts masked around each measured
+call, and prints the results over USB serial: the best, average and worst cycles per
+48-sample block for every kernel, the cost of each read-out, `init` and the setters.
+Build and flash it for a Daisy Seed or a Daisy Patch SM:
+
+```sh
+make LIBDAISY_DIR=/path/to/libDaisy
+make LIBDAISY_DIR=/path/to/libDaisy BOARD=patch_sm
+make program-dfu   # with the board in DFU mode
+```
+
+The program waits for a serial terminal on the USB port (for example
+`screen /dev/ttyACM0`) before it starts. The Patch SM build uses 98% of the internal
+flash; if another toolchain pushes it over, build it with `APP_TYPE=BOOT_SRAM` and the
+Daisy bootloader.
 
 ### JUCE
 
