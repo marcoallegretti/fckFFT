@@ -217,7 +217,8 @@ example uses a lock-free FIFO).
 **Ownership.** Banks are not copyable. `Dynamic` banks and banks over caller-owned
 storage are movable (for example into a `std::vector`, one per channel); a moved-from
 bank is uninitialised. `Static` banks are neither copyable nor movable because their
-storage is inline.
+storage is inline. The owning banks do not convert to `ResonatorBank` or
+`TrackingResonatorBank`, so their storage cannot be moved out from under them.
 
 **Precision limits** (float32 state, measured):
 
