@@ -4,7 +4,7 @@
 #define FCKFFT_VERSION_MAJOR 0
 #define FCKFFT_VERSION_MINOR 2
 #define FCKFFT_VERSION_PATCH 0
-#define FCKFFT_VERSION_PRERELEASE "alpha0"
+#define FCKFFT_VERSION_PRERELEASE "alpha1"
 
 #include "dynamics.h"
 #include "frequencies.h"
