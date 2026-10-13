@@ -24,7 +24,8 @@ public:
 
     static constexpr std::size_t storageSize(std::size_t numResonators) noexcept
     {
-        return ((numResonators + kMaxLanes - 1) / kMaxLanes) * Kernel::kFields * kMaxLanes + 4 * numResonators;
+        return ((numResonators + kMaxLanes - 1) / kMaxLanes) * Kernel::kFields * kMaxLanes + 4 * numResonators
+               + detail::kAlignmentFloats - 1;
     }
 
     TrackingResonatorBank() = default;
@@ -296,8 +297,8 @@ private:
         const std::size_t numGroups = (count + backend.lanes - 1) / backend.lanes;
         backend_ = &backend;
         lanes_ = backend.lanes;
-        groups_ = storage;
-        info_ = storage + numGroups * Kernel::kFields * lanes_;
+        groups_ = detail::alignStorage(storage);
+        info_ = groups_ + numGroups * Kernel::kFields * lanes_;
         size_ = count;
         numGroups_ = numGroups;
         sampleRate_ = sampleRate;

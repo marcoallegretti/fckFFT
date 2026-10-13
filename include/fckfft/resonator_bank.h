@@ -191,7 +191,8 @@ public:
 
     static constexpr std::size_t storageSize(std::size_t numResonators) noexcept
     {
-        return ((numResonators + kMaxLanes - 1) / kMaxLanes) * Kernel::kFields * kMaxLanes + 8 * numResonators;
+        return ((numResonators + kMaxLanes - 1) / kMaxLanes) * Kernel::kFields * kMaxLanes + 8 * numResonators
+               + detail::kAlignmentFloats - 1;
     }
 
     ResonatorBank() = default;
@@ -504,8 +505,8 @@ protected:
         const std::size_t numGroups = (count + backend.lanes - 1) / backend.lanes;
         backend_ = &backend;
         lanes_ = backend.lanes;
-        groups_ = storage;
-        info_ = storage + numGroups * Kernel::kFields * lanes_;
+        groups_ = detail::alignStorage(storage);
+        info_ = groups_ + numGroups * Kernel::kFields * lanes_;
         size_ = count;
         numGroups_ = numGroups;
         sampleRate_ = sampleRate;

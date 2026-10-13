@@ -285,6 +285,28 @@ TEST_CASE(tracking_power_time_constant_smooths_threshold)
     CHECK_NEAR(smooth.accumulatedPower(), smooth.power(0), 1e-6 * smooth.power(0));
 }
 
+TEST_CASE(tracking_storage_offset_does_not_change_results)
+{
+    const std::vector<float> f = semitones(400.0f, 9);
+    const std::vector<float> x = signals::tone(4000, 48000.0, 452.0);
+    fckfft::DynamicTrackingResonatorBank reference;
+    CHECK(reference.init(f.data(), f.size(), 48000.0f, TrackingRule::normalizedChord));
+    reference.process(x.data(), x.size());
+    for (std::size_t offset = 0; offset < 16; ++offset)
+    {
+        std::vector<float> buffer(offset + fckfft::TrackingResonatorBank::storageSize(f.size()));
+        fckfft::TrackingResonatorBank bank;
+        CHECK(bank.init(buffer.data() + offset, buffer.size() - offset, f.data(), f.size(), 48000.0f,
+                        TrackingRule::normalizedChord));
+        bank.process(x.data(), x.size());
+        for (std::size_t k = 0; k < f.size(); ++k)
+        {
+            CHECK_SAME(bank.power(k), reference.power(k));
+            CHECK_SAME(bank.resonantFrequency(k), reference.resonantFrequency(k));
+        }
+    }
+}
+
 TEST_CASE(tracking_bulk_readouts)
 {
     const std::vector<float> f = semitones(500.0f, 6);

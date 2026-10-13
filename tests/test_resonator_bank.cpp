@@ -160,6 +160,27 @@ TEST_CASE(bank_stride_matches_mono)
     }
 }
 
+TEST_CASE(bank_storage_offset_does_not_change_results)
+{
+    const std::vector<float> f = semitoneBins(200.0f, 19);
+    const std::vector<float> x = signals::noise(2000, 5u, 0.5f);
+    fckfft::DynamicResonatorBank reference;
+    CHECK(reference.init(f.data(), f.size(), 48000.0f));
+    reference.process(x.data(), x.size());
+    for (std::size_t offset = 0; offset < 16; ++offset)
+    {
+        std::vector<float> buffer(offset + fckfft::ResonatorBank::storageSize(f.size()));
+        fckfft::ResonatorBank bank;
+        CHECK(bank.init(buffer.data() + offset, buffer.size() - offset, f.data(), f.size(), 48000.0f));
+        bank.process(x.data(), x.size());
+        for (std::size_t k = 0; k < f.size(); ++k)
+        {
+            CHECK_SAME(bank.value(k).re, reference.value(k).re);
+            CHECK_SAME(bank.value(k).im, reference.value(k).im);
+        }
+    }
+}
+
 TEST_CASE(bank_padding_lanes_are_inert)
 {
     std::vector<float> all(3 * fckfft::ResonatorBank::kMaxLanes + 1);

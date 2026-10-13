@@ -285,6 +285,14 @@ namespace avx512 {
 #define FCKFFT_HAS_AVX512_BACKEND 1
 #endif
 
+constexpr std::size_t kAlignmentFloats = 16;
+
+inline float* alignStorage(float* storage) noexcept
+{
+    const std::size_t misalignment = static_cast<std::size_t>(reinterpret_cast<std::uintptr_t>(storage) % 64u);
+    return storage + (64u - misalignment) % 64u / sizeof(float);
+}
+
 constexpr std::size_t maxLanes(std::size_t a, std::size_t b)
 {
     return a > b ? a : b;
