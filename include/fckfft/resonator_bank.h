@@ -3,6 +3,8 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -32,45 +34,125 @@ inline bool acceptableDecay(float requested, double effective)
     return effective > 0.0 && std::fabs(effective - static_cast<double>(requested)) <= 0.25 * static_cast<double>(requested);
 }
 
-inline void poleCoefficients(float frequency, float sampleRate, float decay, float& re, float& im)
+inline std::uint64_t phaseIncrement(float frequency, float sampleRate)
 {
-    const double omega = kTwoPi * static_cast<double>(frequency) / static_cast<double>(sampleRate);
-    const double r = 1.0 - static_cast<double>(decay);
-    re = static_cast<float>(r * std::cos(omega));
-    im = static_cast<float>(r * std::sin(omega));
+    std::uint32_t fb, rb;
+    std::memcpy(&fb, &frequency, sizeof fb);
+    std::memcpy(&rb, &sampleRate, sizeof rb);
+    const int fe = static_cast<int>((fb >> 23) & 0xFFu), re = static_cast<int>((rb >> 23) & 0xFFu);
+    if (fe == 0 || re == 0)
+        return 0;
+    const std::uint32_t num = (fb & 0x7FFFFFu) | 0x800000u, den = (rb & 0x7FFFFFu) | 0x800000u;
+    const int shift = fe - re + 64;
+    if (shift < 0)
+        return shift == -1 && num >= den ? 1u : 0u;
+    std::uint64_t q = num / den;
+    std::uint32_t r = num % den;
+    for (int remaining = shift; remaining > 0;)
+    {
+        const int step = remaining < 8 ? remaining : 8;
+        const std::uint32_t wide = r << step;
+        q = (q << step) | (wide / den);
+        r = wide % den;
+        remaining -= step;
+    }
+    return q + (2 * static_cast<std::uint64_t>(r) >= den ? 1u : 0u);
+}
+
+inline void turnSinCos(std::uint64_t turns, float& s, float& c)
+{
+    const std::uint32_t u = static_cast<std::uint32_t>(turns >> 32);
+    const std::uint32_t quadrant = (u + 0x20000000u) >> 30;
+    const float x = static_cast<float>(static_cast<std::int32_t>(u - (quadrant << 30))) * 1.46291807926715968e-9f;
+    const float x2 = x * x;
+    const float sn =
+        x * (1.0f + x2 * (-1.66666667e-1f + x2 * (8.33333333e-3f + x2 * (-1.98412698e-4f + x2 * 2.75573192e-6f))));
+    const float cs =
+        1.0f
+        + x2 * (-0.5f + x2 * (4.16666667e-2f + x2 * (-1.38888889e-3f + x2 * (2.48015873e-5f + x2 * -2.75573192e-7f))));
+    const float s0 = (quadrant & 1u) != 0 ? cs : sn;
+    const float c0 = (quadrant & 1u) != 0 ? sn : cs;
+    s = (quadrant & 2u) != 0 ? -s0 : s0;
+    c = ((quadrant + 1u) & 2u) != 0 ? -c0 : c0;
+}
+
+inline void turnSinCos(std::uint64_t turns, double& s, double& c)
+{
+    const std::uint64_t quadrant = (turns + 0x2000000000000000ull) >> 62;
+    const double x = static_cast<double>(static_cast<std::int64_t>(turns - (quadrant << 62))) * 3.4061215800865545e-19;
+    const double x2 = x * x;
+    const double sn =
+        x
+        * (1.0
+           + x2
+                 * (-1.0 / 6.0
+                    + x2
+                          * (1.0 / 120.0
+                             + x2
+                                   * (-1.0 / 5040.0
+                                      + x2
+                                            * (1.0 / 362880.0
+                                               + x2
+                                                     * (-1.0 / 39916800.0
+                                                        + x2 * (1.0 / 6227020800.0 + x2 * (-1.0 / 1307674368000.0))))))));
+    const double cs =
+        1.0
+        + x2
+              * (-0.5
+                 + x2
+                       * (1.0 / 24.0
+                          + x2
+                                * (-1.0 / 720.0
+                                   + x2
+                                         * (1.0 / 40320.0
+                                            + x2
+                                                  * (-1.0 / 3628800.0
+                                                     + x2 * (1.0 / 479001600.0 + x2 * (-1.0 / 87178291200.0
+                                                                                       + x2 / 20922789888000.0)))))));
+    const double s0 = (quadrant & 1u) != 0 ? cs : sn;
+    const double c0 = (quadrant & 1u) != 0 ? sn : cs;
+    s = (quadrant & 2u) != 0 ? -s0 : s0;
+    c = ((quadrant + 1u) & 2u) != 0 ? -c0 : c0;
 }
 
 inline double poleDecay(float re, float im)
 {
-    return 1.0 - std::hypot(static_cast<double>(re), static_cast<double>(im));
+    const double x = re, y = im;
+    return 1.0 - std::sqrt(x * x + y * y);
 }
 
-inline bool acceptablePole(float frequency, float sampleRate, float decay)
+struct Pole
 {
-    float re, im;
-    poleCoefficients(frequency, sampleRate, decay, re, im);
-    return inUnitInterval(decay) && acceptableDecay(decay, poleDecay(re, im));
+    float re;
+    float im;
+    double decay;
+};
+
+inline Pole pole(double s, double c, float decay)
+{
+    const double r = 1.0 - static_cast<double>(decay);
+    const float re = static_cast<float>(r * c), im = static_cast<float>(r * s);
+    return Pole{re, im, poleDecay(re, im)};
+}
+
+inline bool acceptable(const Pole& p, float decay)
+{
+    return inUnitInterval(decay) && acceptableDecay(decay, p.decay);
+}
+
+inline bool acceptablePoles(std::uint64_t increment, float alpha, float beta)
+{
+    double s, c;
+    turnSinCos(increment, s, c);
+    return acceptable(pole(s, c, alpha), alpha) && (beta == alpha || acceptable(pole(s, c, beta), beta));
 }
 
 inline void phasorStep(float frequency, float sampleRate, float& c, float& s)
 {
-    const double omega = -kTwoPi * static_cast<double>(frequency) / static_cast<double>(sampleRate);
-    c = static_cast<float>(std::cos(omega));
-    s = static_cast<float>(std::sin(omega));
-}
-
-inline void rotation(double frequency, double sampleRate, unsigned long long samples, double& c, double& s)
-{
-    if (samples == 0)
-    {
-        c = 1.0;
-        s = 0.0;
-        return;
-    }
-    const double turns = std::fmod(frequency * static_cast<double>(samples - 1), sampleRate) / sampleRate;
-    const float theta = static_cast<float>(-kTwoPi * (turns > 0.5 ? turns - 1.0 : turns));
-    c = std::cos(theta);
-    s = std::sin(theta);
+    double sn, cs;
+    turnSinCos(phaseIncrement(frequency, sampleRate), sn, cs);
+    c = static_cast<float>(cs);
+    s = static_cast<float>(-sn);
 }
 
 }
@@ -84,7 +166,7 @@ public:
 
     static constexpr std::size_t storageSize(std::size_t numResonators) noexcept
     {
-        return ((numResonators + kMaxLanes - 1) / kMaxLanes) * Kernel::kFields * kMaxLanes + 4 * numResonators;
+        return ((numResonators + kMaxLanes - 1) / kMaxLanes) * Kernel::kFields * kMaxLanes + 8 * numResonators;
     }
 
     ResonatorBank() = default;
@@ -126,6 +208,8 @@ public:
             field(k, Kernel::kSr) = 0.0f;
             field(k, Kernel::kSi) = 0.0f;
         }
+        for (std::size_t k = 0; k < size_; ++k)
+            setOffset(k, 0);
         processed_ = 0;
         sinceCheck_ = 0;
     }
@@ -168,10 +252,11 @@ public:
             return false;
         for (std::size_t k = 0; k < count; ++k)
         {
+            if (!detail::validFrequency(frequencies[k], sampleRate))
+                return false;
             const float a = alphas != nullptr ? alphas[k] : heuristicAlpha(frequencies[k], sampleRate);
             const float b = betas != nullptr ? betas[k] : a;
-            if (!detail::validFrequency(frequencies[k], sampleRate) || !detail::acceptablePole(frequencies[k], sampleRate, a)
-                || !detail::acceptablePole(frequencies[k], sampleRate, b))
+            if (!detail::acceptablePoles(detail::phaseIncrement(frequencies[k], sampleRate), a, b))
                 return false;
         }
         return true;
@@ -179,12 +264,18 @@ public:
 
     bool setAlpha(std::size_t k, float a) noexcept
     {
-        if (k >= size_ || !detail::acceptablePole(frequency(k), sampleRate_, a))
+        if (k >= size_)
             return false;
-        const double before = effectiveAlpha(k);
+        double s, c;
+        detail::turnSinCos(increment(k), s, c);
+        const detail::Pole p = detail::pole(s, c, a);
+        if (!detail::acceptable(p, a))
+            return false;
+        const float ratio = static_cast<float>(effectiveAlpha(k) / p.decay);
         info_[size_ + k] = a;
-        writeCoefficients(k);
-        const float ratio = static_cast<float>(before / effectiveAlpha(k));
+        field(k, Kernel::kCr) = p.re;
+        field(k, Kernel::kCi) = p.im;
+        info_[3 * size_ + k] = static_cast<float>(p.decay * effectiveBeta(k));
         field(k, Kernel::kVr) *= ratio;
         field(k, Kernel::kVi) *= ratio;
         field(k, Kernel::kSr) *= ratio;
@@ -194,12 +285,18 @@ public:
 
     bool setBeta(std::size_t k, float b) noexcept
     {
-        if (k >= size_ || !detail::acceptablePole(frequency(k), sampleRate_, b))
+        if (k >= size_)
             return false;
-        const double before = effectiveBeta(k);
+        double s, c;
+        detail::turnSinCos(increment(k), s, c);
+        const detail::Pole p = detail::pole(s, c, b);
+        if (!detail::acceptable(p, b))
+            return false;
+        const float ratio = static_cast<float>(effectiveBeta(k) / p.decay);
         info_[2 * size_ + k] = b;
-        writeCoefficients(k);
-        const float ratio = static_cast<float>(before / effectiveBeta(k));
+        field(k, Kernel::kDr) = p.re;
+        field(k, Kernel::kDi) = p.im;
+        info_[3 * size_ + k] = static_cast<float>(effectiveAlpha(k) * p.decay);
         field(k, Kernel::kSr) *= ratio;
         field(k, Kernel::kSi) *= ratio;
         return true;
@@ -207,35 +304,33 @@ public:
 
     bool setFrequency(std::size_t k, float f) noexcept
     {
-        if (k >= size_ || !detail::validFrequency(f, sampleRate_) || !detail::acceptablePole(f, sampleRate_, alpha(k))
-            || !detail::acceptablePole(f, sampleRate_, beta(k)))
+        if (k >= size_ || !detail::validFrequency(f, sampleRate_))
             return false;
+        const std::uint64_t inc = detail::phaseIncrement(f, sampleRate_);
+        double s, c;
+        detail::turnSinCos(inc, s, c);
+        const detail::Pole pa = detail::pole(s, c, alpha(k)), pb = detail::pole(s, c, beta(k));
+        if (!detail::acceptable(pa, alpha(k)) || !detail::acceptable(pb, beta(k)))
+            return false;
+        const float v = static_cast<float>(effectiveAlpha(k) / pa.decay);
+        const float w = static_cast<float>(info_[3 * size_ + k] / (pa.decay * pb.decay));
+        setOffset(k, offset(k) + (increment(k) - inc) * (processed_ - 1));
         info_[k] = f;
-        writeCoefficients(k);
+        writeCoefficients(k, inc, pa, pb);
+        field(k, Kernel::kVr) *= v;
+        field(k, Kernel::kVi) *= v;
+        field(k, Kernel::kSr) *= w;
+        field(k, Kernel::kSi) *= w;
         return true;
     }
 
-    Complex value(std::size_t k) const noexcept
-    {
-        double c, s;
-        detail::rotation(info_[k], sampleRate_, processed_, c, s);
-        const double scale = info_[3 * size_ + k];
-        const double re = scale * field(k, Kernel::kSr), im = scale * field(k, Kernel::kSi);
-        return Complex{static_cast<float>(re * c - im * s), static_cast<float>(re * s + im * c)};
-    }
+    Complex value(std::size_t k) const noexcept { return readValue(k, field(k, Kernel::kSr), field(k, Kernel::kSi)); }
 
-    float power(std::size_t k) const noexcept
-    {
-        const double scale = info_[3 * size_ + k];
-        const double re = scale * field(k, Kernel::kSr), im = scale * field(k, Kernel::kSi);
-        return static_cast<float>(re * re + im * im);
-    }
+    float power(std::size_t k) const noexcept { return readPower(k, field(k, Kernel::kSr), field(k, Kernel::kSi)); }
 
     float magnitude(std::size_t k) const noexcept
     {
-        const double scale = info_[3 * size_ + k];
-        return static_cast<float>(scale * std::hypot(static_cast<double>(field(k, Kernel::kSr)),
-                                                     static_cast<double>(field(k, Kernel::kSi))));
+        return static_cast<float>(std::sqrt(static_cast<double>(power(k))));
     }
 
     float phase(std::size_t k) const noexcept
@@ -246,26 +341,32 @@ public:
 
     void values(Complex* out) const noexcept
     {
-        for (std::size_t k = 0; k < size_; ++k)
-            out[k] = value(k);
+        forEach([&](std::size_t k, const float* g, std::size_t l) {
+            out[k] = readValue(k, g[Kernel::kSr * lanes_ + l], g[Kernel::kSi * lanes_ + l]);
+        });
     }
 
     void powers(float* out) const noexcept
     {
-        for (std::size_t k = 0; k < size_; ++k)
-            out[k] = power(k);
+        forEach([&](std::size_t k, const float* g, std::size_t l) {
+            out[k] = readPower(k, g[Kernel::kSr * lanes_ + l], g[Kernel::kSi * lanes_ + l]);
+        });
     }
 
     void magnitudes(float* out) const noexcept
     {
-        for (std::size_t k = 0; k < size_; ++k)
-            out[k] = magnitude(k);
+        forEach([&](std::size_t k, const float* g, std::size_t l) {
+            out[k] = static_cast<float>(
+                std::sqrt(static_cast<double>(readPower(k, g[Kernel::kSr * lanes_ + l], g[Kernel::kSi * lanes_ + l]))));
+        });
     }
 
     void phases(float* out) const noexcept
     {
-        for (std::size_t k = 0; k < size_; ++k)
-            out[k] = phase(k);
+        forEach([&](std::size_t k, const float* g, std::size_t l) {
+            const Complex v = readValue(k, g[Kernel::kSr * lanes_ + l], g[Kernel::kSi * lanes_ + l]);
+            out[k] = std::atan2(v.im, v.re);
+        });
     }
 
 private:
@@ -290,6 +391,53 @@ private:
 
     std::size_t paddedSize() const noexcept { return numGroups_ * lanes_; }
 
+    template <class F>
+    void forEach(F&& f) const noexcept
+    {
+        std::size_t k = 0;
+        for (std::size_t g = 0; g < numGroups_; ++g)
+        {
+            const float* base = groups_ + g * Kernel::kFields * lanes_;
+            for (std::size_t l = 0; l < lanes_ && k < size_; ++l, ++k)
+                f(k, base, l);
+        }
+    }
+
+    std::uint64_t increment(std::size_t k) const noexcept
+    {
+        std::uint64_t value;
+        std::memcpy(&value, info_ + 4 * size_ + 2 * k, sizeof value);
+        return value;
+    }
+
+    std::uint64_t offset(std::size_t k) const noexcept
+    {
+        std::uint64_t value;
+        std::memcpy(&value, info_ + 6 * size_ + 2 * k, sizeof value);
+        return value;
+    }
+
+    void setOffset(std::size_t k, std::uint64_t value) noexcept
+    {
+        std::memcpy(info_ + 6 * size_ + 2 * k, &value, sizeof value);
+    }
+
+    Complex readValue(std::size_t k, float sr, float si) const noexcept
+    {
+        float s, c;
+        detail::turnSinCos(increment(k) * (processed_ - 1) + offset(k), s, c);
+        const float scale = info_[3 * size_ + k];
+        const float re = scale * sr, im = scale * si;
+        return Complex{re * c + im * s, im * c - re * s};
+    }
+
+    float readPower(std::size_t k, float sr, float si) const noexcept
+    {
+        const double scale = info_[3 * size_ + k];
+        const double re = scale * sr, im = scale * si;
+        return static_cast<float>(re * re + im * im);
+    }
+
     float& field(std::size_t k, int f) noexcept
     {
         return groups_[((k / lanes_) * Kernel::kFields + static_cast<std::size_t>(f)) * lanes_ + k % lanes_];
@@ -310,18 +458,22 @@ private:
         return detail::poleDecay(field(k, Kernel::kDr), field(k, Kernel::kDi));
     }
 
-    void writeCoefficients(std::size_t k) noexcept
+    void writeCoefficients(std::size_t k, std::uint64_t inc, const detail::Pole& pa, const detail::Pole& pb) noexcept
     {
-        detail::poleCoefficients(frequency(k), sampleRate_, alpha(k), field(k, Kernel::kCr), field(k, Kernel::kCi));
-        detail::poleCoefficients(frequency(k), sampleRate_, beta(k), field(k, Kernel::kDr), field(k, Kernel::kDi));
-        info_[3 * size_ + k] = static_cast<float>(effectiveAlpha(k) * effectiveBeta(k));
+        std::memcpy(info_ + 4 * size_ + 2 * k, &inc, sizeof inc);
+        field(k, Kernel::kCr) = pa.re;
+        field(k, Kernel::kCi) = pa.im;
+        field(k, Kernel::kDr) = pb.re;
+        field(k, Kernel::kDi) = pb.im;
+        info_[3 * size_ + k] = static_cast<float>(pa.decay * pb.decay);
     }
 
+protected:
     bool initImpl(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
-                  const float* betas, std::size_t count, float sampleRate) noexcept
+                  const float* betas, std::size_t count, float sampleRate, bool validated = false) noexcept
     {
         if (storage == nullptr || count == 0 || storageCount < storageSize(count)
-            || !validParameters(frequencies, alphas, betas, count, sampleRate))
+            || (!validated && !validParameters(frequencies, alphas, betas, count, sampleRate)))
             return false;
         const detail::BankBackend& backend = detail::selectBankBackend();
         const std::size_t numGroups = (count + backend.lanes - 1) / backend.lanes;
@@ -338,15 +490,21 @@ private:
         for (std::size_t k = 0; k < count; ++k)
         {
             const float a = alphas != nullptr ? alphas[k] : heuristicAlpha(frequencies[k], sampleRate);
+            const float b = betas != nullptr ? betas[k] : a;
+            const std::uint64_t inc = detail::phaseIncrement(frequencies[k], sampleRate);
+            double s, c;
+            detail::turnSinCos(inc, s, c);
             info_[k] = frequencies[k];
             info_[count + k] = a;
-            info_[2 * count + k] = betas != nullptr ? betas[k] : a;
-            writeCoefficients(k);
+            info_[2 * count + k] = b;
+            const detail::Pole pa = detail::pole(s, c, a);
+            writeCoefficients(k, inc, pa, b == a ? pa : detail::pole(s, c, b));
         }
         reset();
         return true;
     }
 
+private:
     const detail::BankBackend* backend_ = &detail::baseline::kBankBackend;
     std::size_t lanes_ = detail::baseline::kBankBackend.lanes;
     float* groups_ = nullptr;
@@ -430,7 +588,8 @@ public:
             return false;
         float* storage = storage_.acquire(storageSize(count));
         return storage != nullptr
-               && ResonatorBank::init(storage, storageSize(count), frequencies, alphas, betas, count, sampleRate);
+               && ResonatorBank::initImpl(storage, storageSize(count), frequencies, alphas, betas, count, sampleRate,
+                                          true);
     }
 
     bool init(const float* frequencies, const float* alphas, std::size_t count,

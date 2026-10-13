@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <type_traits>
 #include <utility>
@@ -529,4 +530,91 @@ TEST_CASE(bank_failed_init_keeps_configuration)
     unchanged(dynamic);
     unchanged(fixed);
     unchanged(caller);
+}
+
+TEST_CASE(bank_phase_increments_are_correctly_rounded)
+{
+    const struct
+    {
+        float frequency, sampleRate;
+        unsigned long long increment;
+    } cases[] = {{440.0f, 48000.0f, 169095154009004223ull},   {27.5f, 44100.0f, 11503071701292804ull},
+                 {4186.0f, 96000.0f, 804354903047376907ull}, {0.1f, 48000.0f, 38430717392891ull},
+                 {12345.6f, 48000.0f, 4744502425638109097ull}, {1e-30f, 48000.0f, 0ull},
+                 {24000.0f, 48000.0f, 9223372036854775808ull}, {0.0f, 48000.0f, 0ull}};
+    for (const auto& c : cases)
+        CHECK(fckfft::detail::phaseIncrement(c.frequency, c.sampleRate) == c.increment);
+    double worstFloat = 0.0, worstDouble = 0.0;
+    for (unsigned long long i = 0; i < 4096; ++i)
+    {
+        const unsigned long long turns = i * 0x0040000000000001ull + (i << 7);
+        const double angle = 2.0 * signals::kPi * static_cast<double>(turns) / 18446744073709551616.0;
+        float fs, fc;
+        double ds, dc;
+        fckfft::detail::turnSinCos(turns, fs, fc);
+        fckfft::detail::turnSinCos(turns, ds, dc);
+        worstFloat = std::max(worstFloat, std::max(std::fabs(fs - std::sin(angle)), std::fabs(fc - std::cos(angle))));
+        worstDouble = std::max(worstDouble, std::max(std::fabs(ds - std::sin(angle)), std::fabs(dc - std::cos(angle))));
+    }
+    CHECK_NEAR(worstFloat, 0.0, 1.5e-7);
+    CHECK_NEAR(worstDouble, 0.0, 4e-15);
+}
+
+TEST_CASE(bank_set_frequency_keeps_value_continuous)
+{
+    const float sr = 48000.0f;
+    const std::vector<float> f = semitoneBins(300.0f, 6);
+    const std::vector<float> x = signals::tone(30000, sr, 377.0);
+    fckfft::DynamicResonatorBank bank, model;
+    CHECK(bank.init(f.data(), f.size(), sr));
+    bank.process(x.data(), 24013);
+    for (std::size_t k = 0; k < f.size(); ++k)
+    {
+        const fckfft::Complex before = bank.value(k);
+        CHECK(bank.setFrequency(k, f[k] * 1.0137f));
+        const fckfft::Complex after = bank.value(k);
+        const double scale = std::hypot(before.re, before.im);
+        CHECK_NEAR(after.re, before.re, 2e-6 * scale + 1e-12);
+        CHECK_NEAR(after.im, before.im, 2e-6 * scale + 1e-12);
+    }
+    std::vector<float> retuned(f.size());
+    for (std::size_t k = 0; k < f.size(); ++k)
+        retuned[k] = f[k] * 1.0137f;
+    bank.process(x.data() + 24013, x.size() - 24013);
+    for (std::size_t k = 0; k < f.size(); ++k)
+    {
+        const double a = bank.alpha(k), b = bank.beta(k);
+        const double w0 = 2.0 * signals::kPi * f[k] / sr, w1 = 2.0 * signals::kPi * retuned[k] / sr;
+        std::complex<double> r = 0.0, s = 0.0;
+        double phase = 0.0;
+        for (std::size_t i = 0; i < x.size(); ++i)
+        {
+            r += a * (static_cast<double>(x[i]) * std::polar(1.0, -phase) - r);
+            s += b * (r - s);
+            phase += i + 1 < 24013 ? w0 : w1;
+        }
+        const fckfft::Complex v = bank.value(k);
+        const double scale = std::abs(s);
+        CHECK_NEAR(v.re, s.real(), 2e-4 * scale + 1e-9);
+        CHECK_NEAR(v.im, s.imag(), 2e-4 * scale + 1e-9);
+    }
+}
+
+TEST_CASE(bank_readouts_cover_documented_amplitudes)
+{
+    const float f[2] = {440.0f, 880.0f};
+    for (double amplitude : {1e-18, 1.0, 1e18})
+    {
+        fckfft::DynamicResonatorBank bank;
+        CHECK(bank.init(f, 2, 48000.0f));
+        const std::vector<float> x = signals::tone(48000, 48000.0, 440.0, amplitude);
+        bank.process(x.data(), x.size());
+        float mags[2], powers[2];
+        bank.magnitudes(mags);
+        bank.powers(powers);
+        CHECK_NEAR(mags[0] / amplitude, 0.5, 0.01);
+        CHECK_NEAR(bank.magnitude(0), mags[0], 0.0);
+        CHECK_NEAR(powers[0] / (amplitude * amplitude), 0.25, 0.01);
+        CHECK(std::isfinite(mags[1]) && std::isfinite(powers[1]));
+    }
 }
