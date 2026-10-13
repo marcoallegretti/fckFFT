@@ -350,8 +350,9 @@ model:
   has no separate tail path.
 - **Resonator form.** The fixed bank has no phasor: each resonator is a complex
   one-pole filter at its own frequency, and the read-out rotates the state back to
-  the baseband from an integer phase that counts samples exactly. Magnitudes match the reference recurrence
-  within rounding, the phase cannot drift, and results do not depend on block size.
+  the baseband from a 64-bit integer phase. Magnitudes match the reference recurrence
+  within rounding, the phase drifts by at most 1.7e-19 rad per sample, and results do
+  not depend on block size.
   Tracking banks keep the phasor form and renormalise it every 32 samples, counted
   from the last reset, instead of once per `update` call.
 - **Instantaneous frequency.** The readout uses the delta phase smoothed with
