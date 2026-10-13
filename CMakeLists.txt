@@ -70,7 +70,8 @@ if(FCKFFT_BUILD_TESTS)
         tests/main.cpp
         tests/test_utilities.cpp
         tests/test_resonator_bank.cpp
-        tests/test_tracking_resonator_bank.cpp)
+        tests/test_tracking_resonator_bank.cpp
+        tests/test_realtime.cpp)
     target_link_libraries(fckfft_tests PRIVATE fckfft)
     target_compile_definitions(fckfft_tests PRIVATE FCKFFT_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/tests/data")
     if(MSVC)
