@@ -333,6 +333,24 @@ public:
         sigma_ = seconds > 0.0f ? alphaFromTimeConstant(seconds, sampleRate_) : 1.0f;
     }
 
+    static bool validParameters(const float* frequencies, const float* alphas, const float* betas, const float* gammas,
+                                std::size_t count, float sampleRate, float thresholdDb) noexcept
+    {
+        if (frequencies == nullptr || count == 0 || !(sampleRate > 0.0f) || !std::isfinite(sampleRate)
+            || !std::isfinite(thresholdDb))
+            return false;
+        for (std::size_t k = 0; k < count; ++k)
+        {
+            const float a = alphas != nullptr ? alphas[k] : heuristicAlpha(frequencies[k], sampleRate);
+            const float b = betas != nullptr ? betas[k] : a;
+            const float g = gammas != nullptr ? gammas[k] : 0.5f * a;
+            if (!detail::validFrequency(frequencies[k], sampleRate) || !acceptableDecay(a) || !acceptableDecay(b)
+                || !(g >= 0.0f && g <= 1.0f))
+                return false;
+        }
+        return true;
+    }
+
     bool setGamma(std::size_t k, float g) noexcept
     {
         if (k >= size_ || !(g >= 0.0f && g <= 1.0f))
@@ -459,24 +477,19 @@ private:
         return groups_[(k / kLanes) * Kernel::kGroupFloats + static_cast<std::size_t>(f) * kLanes + k % kLanes];
     }
 
+    static bool acceptableDecay(float decay) noexcept
+    {
+        return detail::inUnitInterval(decay)
+               && detail::acceptableDecay(decay, 1.0 - static_cast<double>(1.0f - decay));
+    }
+
     bool initImpl(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
                   const float* betas, const float* gammas, std::size_t count, float sampleRate, TrackingRule rule,
                   float thresholdDb) noexcept
     {
-        numGroups_ = 0;
-        size_ = 0;
-        if (storage == nullptr || frequencies == nullptr || count == 0 || storageCount < storageSize(count)
-            || !(sampleRate > 0.0f) || !std::isfinite(sampleRate) || !std::isfinite(thresholdDb))
+        if (storage == nullptr || count == 0 || storageCount < storageSize(count)
+            || !validParameters(frequencies, alphas, betas, gammas, count, sampleRate, thresholdDb))
             return false;
-        for (std::size_t k = 0; k < count; ++k)
-        {
-            const float a = alphas != nullptr ? alphas[k] : heuristicAlpha(frequencies[k], sampleRate);
-            const float b = betas != nullptr ? betas[k] : a;
-            const float g = gammas != nullptr ? gammas[k] : 0.5f * a;
-            if (!detail::validFrequency(frequencies[k], sampleRate) || !detail::inUnitInterval(a)
-                || !detail::inUnitInterval(b) || !(g >= 0.0f && g <= 1.0f))
-                return false;
-        }
         const std::size_t numGroups = (count + kLanes - 1) / kLanes;
         groups_ = storage;
         info_ = storage + numGroups * Kernel::kGroupFloats;
@@ -565,6 +578,8 @@ public:
     bool init(const float* frequencies, const float* alphas, const float* betas, const float* gammas,
               std::size_t count, float sampleRate, TrackingRule rule = TrackingRule::ewma, float thresholdDb = -60.0f)
     {
+        if (!validParameters(frequencies, alphas, betas, gammas, count, sampleRate, thresholdDb))
+            return false;
         storage_.assign(storageSize(count), 0.0f);
         return TrackingResonatorBank::init(storage_.data(), storage_.size(), frequencies, alphas, betas, gammas, count,
                                            sampleRate, rule, thresholdDb);

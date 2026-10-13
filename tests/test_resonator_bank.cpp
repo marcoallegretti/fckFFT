@@ -457,3 +457,68 @@ TEST_CASE(bank_bandwidth_helpers_hit_minus_three_decibels)
         CHECK_NEAR(20.0 * std::log10(level[2] / level[1]), -3.01, 0.1);
     }
 }
+
+TEST_CASE(bank_rejects_unrepresentable_time_constants)
+{
+    const float sr = 48000.0f;
+    for (float f : {0.0f, 12000.0f, 5187.25f, 4458.0f})
+    {
+        const float tiny = 1e-8f;
+        fckfft::DynamicResonatorBank bank;
+        CHECK(!bank.init(&f, &tiny, 1, sr));
+        CHECK(!bank.isInitialized());
+    }
+    std::size_t accepted = 0, tried = 0;
+    for (float fs : {8000.0f, 44100.0f, 48000.0f, 96000.0f, 192000.0f})
+        for (float a : {1e-5f, 3e-5f, 1e-4f, 1e-3f, 0.1f, 1.0f})
+            for (int i = 0; i <= 400; ++i)
+            {
+                const float f = 0.5f * fs * static_cast<float>(i) / 400.0f;
+                fckfft::DynamicResonatorBank bank;
+                ++tried;
+                accepted += bank.init(&f, &a, 1, fs) ? 1u : 0u;
+            }
+    CHECK(accepted == tried);
+    const float f[2] = {12000.0f, 440.0f};
+    fckfft::DynamicResonatorBank bank;
+    CHECK(bank.init(f, 2, sr));
+    const std::vector<float> x = signals::tone(4800, sr, 440.0);
+    bank.process(x.data(), x.size());
+    const fckfft::Complex before = bank.value(0);
+    const float alpha = bank.alpha(0), beta = bank.beta(0);
+    CHECK(!bank.setAlpha(0, 1e-9f));
+    CHECK(!bank.setBeta(0, 1e-9f));
+    CHECK(bank.alpha(0) == alpha && bank.beta(0) == beta);
+    CHECK(bank.value(0).re == before.re && bank.value(0).im == before.im);
+    CHECK(std::isfinite(bank.magnitude(0)));
+}
+
+TEST_CASE(bank_failed_init_keeps_configuration)
+{
+    const std::vector<float> f = semitoneBins(200.0f, 30);
+    const std::vector<float> high(40, 15000.0f);
+    const std::vector<float> x = signals::noise(3000, 3u);
+    fckfft::DynamicResonatorBank twin;
+    CHECK(twin.init(f.data(), f.size(), 48000.0f));
+    twin.process(x.data(), x.size());
+
+    fckfft::DynamicResonatorBank dynamic;
+    fckfft::StaticResonatorBank<32> fixed;
+    std::vector<float> storage(fckfft::ResonatorBank::storageSize(f.size()));
+    fckfft::ResonatorBank caller;
+    CHECK(dynamic.init(f.data(), f.size(), 48000.0f));
+    CHECK(fixed.init(f.data(), f.size(), 48000.0f));
+    CHECK(caller.init(storage.data(), storage.size(), f.data(), f.size(), 48000.0f));
+    CHECK(!dynamic.init(high.data(), high.size(), 22050.0f));
+    CHECK(!fixed.init(high.data(), high.size(), 48000.0f));
+    CHECK(!fixed.init(high.data(), 10, 22050.0f));
+    CHECK(!caller.init(storage.data(), storage.size(), high.data(), 10, 22050.0f));
+    CHECK(!caller.init(storage.data(), 4, f.data(), f.size(), 48000.0f));
+    for (fckfft::ResonatorBank* bank : {static_cast<fckfft::ResonatorBank*>(&dynamic), static_cast<fckfft::ResonatorBank*>(&fixed), &caller})
+    {
+        CHECK(bank->isInitialized() && bank->size() == f.size() && bank->sampleRate() == 48000.0f);
+        bank->process(x.data(), x.size());
+        for (std::size_t k = 0; k < f.size(); ++k)
+            CHECK_NEAR(bank->power(k), twin.power(k), 0.0);
+    }
+}

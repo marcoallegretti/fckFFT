@@ -345,3 +345,29 @@ TEST_CASE(tracking_move_and_contract)
     CHECK(assigned.isInitialized() && !channels[0].isInitialized());
     CHECK_NEAR(assigned.power(2), reference.power(2), 0.0);
 }
+
+TEST_CASE(tracking_failed_init_keeps_configuration)
+{
+    std::vector<float> f(12);
+    fckfft::logUniformFrequencies(110.0f, 12.0f, f.size(), f.data());
+    const std::vector<float> high(12, 15000.0f);
+    const std::vector<float> x = signals::tone(4800, 48000.0, 233.0);
+    fckfft::DynamicTrackingResonatorBank twin, dynamic;
+    fckfft::StaticTrackingResonatorBank<12> fixed;
+    CHECK(twin.init(f.data(), f.size(), 48000.0f, fckfft::TrackingRule::normalizedChord));
+    CHECK(dynamic.init(f.data(), f.size(), 48000.0f, fckfft::TrackingRule::normalizedChord));
+    CHECK(fixed.init(f.data(), f.size(), 48000.0f, fckfft::TrackingRule::normalizedChord));
+    const float tiny[12] = {1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f};
+    CHECK(!dynamic.init(high.data(), high.size(), 22050.0f));
+    CHECK(!dynamic.init(f.data(), tiny, nullptr, nullptr, f.size(), 48000.0f));
+    CHECK(!fixed.init(high.data(), 13, 48000.0f));
+    CHECK(!fixed.init(f.data(), tiny, nullptr, nullptr, f.size(), 48000.0f));
+    twin.process(x.data(), x.size());
+    dynamic.process(x.data(), x.size());
+    fixed.process(x.data(), x.size());
+    for (std::size_t k = 0; k < f.size(); ++k)
+    {
+        CHECK_NEAR(dynamic.power(k), twin.power(k), 0.0);
+        CHECK_NEAR(fixed.resonantFrequency(k), twin.resonantFrequency(k), 0.0);
+    }
+}

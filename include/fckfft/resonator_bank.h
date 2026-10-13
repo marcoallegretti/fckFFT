@@ -31,6 +31,31 @@ inline bool validFrequency(float f, float sampleRate)
     return f >= 0.0f && f <= 0.5f * sampleRate;
 }
 
+inline bool acceptableDecay(float requested, double effective)
+{
+    return effective > 0.0 && std::fabs(effective - static_cast<double>(requested)) <= 0.25 * static_cast<double>(requested);
+}
+
+inline void poleCoefficients(float frequency, float sampleRate, float decay, float& re, float& im)
+{
+    const double omega = kTwoPi * static_cast<double>(frequency) / static_cast<double>(sampleRate);
+    const double r = 1.0 - static_cast<double>(decay);
+    re = static_cast<float>(r * std::cos(omega));
+    im = static_cast<float>(r * std::sin(omega));
+}
+
+inline double poleDecay(float re, float im)
+{
+    return 1.0 - std::hypot(static_cast<double>(re), static_cast<double>(im));
+}
+
+inline bool acceptablePole(float frequency, float sampleRate, float decay)
+{
+    float re, im;
+    poleCoefficients(frequency, sampleRate, decay, re, im);
+    return inUnitInterval(decay) && acceptableDecay(decay, poleDecay(re, im));
+}
+
 inline void phasorStep(float frequency, float sampleRate, float& c, float& s)
 {
     const double omega = -kTwoPi * static_cast<double>(frequency) / static_cast<double>(sampleRate);
@@ -273,9 +298,25 @@ public:
     float beta(std::size_t k) const noexcept { return info_[2 * size_ + k]; }
     float timeConstant(std::size_t k) const noexcept { return timeConstantFromAlpha(alpha(k), sampleRate_); }
 
+    static bool validParameters(const float* frequencies, const float* alphas, const float* betas, std::size_t count,
+                                float sampleRate) noexcept
+    {
+        if (frequencies == nullptr || count == 0 || !(sampleRate > 0.0f) || !std::isfinite(sampleRate))
+            return false;
+        for (std::size_t k = 0; k < count; ++k)
+        {
+            const float a = alphas != nullptr ? alphas[k] : heuristicAlpha(frequencies[k], sampleRate);
+            const float b = betas != nullptr ? betas[k] : a;
+            if (!detail::validFrequency(frequencies[k], sampleRate) || !detail::acceptablePole(frequencies[k], sampleRate, a)
+                || !detail::acceptablePole(frequencies[k], sampleRate, b))
+                return false;
+        }
+        return true;
+    }
+
     bool setAlpha(std::size_t k, float a) noexcept
     {
-        if (k >= size_ || !detail::inUnitInterval(a))
+        if (k >= size_ || !detail::acceptablePole(frequency(k), sampleRate_, a))
             return false;
         const double before = effectiveAlpha(k);
         info_[size_ + k] = a;
@@ -290,7 +331,7 @@ public:
 
     bool setBeta(std::size_t k, float b) noexcept
     {
-        if (k >= size_ || !detail::inUnitInterval(b))
+        if (k >= size_ || !detail::acceptablePole(frequency(k), sampleRate_, b))
             return false;
         const double before = effectiveBeta(k);
         info_[2 * size_ + k] = b;
@@ -303,7 +344,8 @@ public:
 
     bool setFrequency(std::size_t k, float f) noexcept
     {
-        if (k >= size_ || !detail::validFrequency(f, sampleRate_))
+        if (k >= size_ || !detail::validFrequency(f, sampleRate_) || !detail::acceptablePole(f, sampleRate_, alpha(k))
+            || !detail::acceptablePole(f, sampleRate_, beta(k)))
             return false;
         info_[k] = f;
         writeCoefficients(k);
@@ -395,42 +437,27 @@ private:
 
     double effectiveAlpha(std::size_t k) const noexcept
     {
-        return 1.0 - std::hypot(static_cast<double>(field(k, Kernel::kCr)), static_cast<double>(field(k, Kernel::kCi)));
+        return detail::poleDecay(field(k, Kernel::kCr), field(k, Kernel::kCi));
     }
 
     double effectiveBeta(std::size_t k) const noexcept
     {
-        return 1.0 - std::hypot(static_cast<double>(field(k, Kernel::kDr)), static_cast<double>(field(k, Kernel::kDi)));
+        return detail::poleDecay(field(k, Kernel::kDr), field(k, Kernel::kDi));
     }
 
     void writeCoefficients(std::size_t k) noexcept
     {
-        const double omega = -detail::kTwoPi * static_cast<double>(frequency(k)) / static_cast<double>(sampleRate_);
-        const double c = std::cos(omega), s = -std::sin(omega);
-        const double ra = 1.0 - static_cast<double>(alpha(k)), rb = 1.0 - static_cast<double>(beta(k));
-        field(k, Kernel::kCr) = static_cast<float>(ra * c);
-        field(k, Kernel::kCi) = static_cast<float>(ra * s);
-        field(k, Kernel::kDr) = static_cast<float>(rb * c);
-        field(k, Kernel::kDi) = static_cast<float>(rb * s);
+        detail::poleCoefficients(frequency(k), sampleRate_, alpha(k), field(k, Kernel::kCr), field(k, Kernel::kCi));
+        detail::poleCoefficients(frequency(k), sampleRate_, beta(k), field(k, Kernel::kDr), field(k, Kernel::kDi));
         info_[3 * size_ + k] = static_cast<float>(effectiveAlpha(k) * effectiveBeta(k));
     }
 
     bool initImpl(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
                   const float* betas, std::size_t count, float sampleRate) noexcept
     {
-        numGroups_ = 0;
-        size_ = 0;
-        if (storage == nullptr || frequencies == nullptr || count == 0 || storageCount < storageSize(count)
-            || !(sampleRate > 0.0f) || !std::isfinite(sampleRate))
+        if (storage == nullptr || count == 0 || storageCount < storageSize(count)
+            || !validParameters(frequencies, alphas, betas, count, sampleRate))
             return false;
-        for (std::size_t k = 0; k < count; ++k)
-        {
-            const float a = alphas != nullptr ? alphas[k] : heuristicAlpha(frequencies[k], sampleRate);
-            const float b = betas != nullptr ? betas[k] : a;
-            if (!detail::validFrequency(frequencies[k], sampleRate) || !detail::inUnitInterval(a)
-                || !detail::inUnitInterval(b))
-                return false;
-        }
         const std::size_t numGroups = (count + kLanes - 1) / kLanes;
         groups_ = storage;
         info_ = storage + numGroups * Kernel::kGroupFloats;
@@ -497,6 +524,8 @@ class DynamicResonatorBank : public ResonatorBank
 public:
     bool init(const float* frequencies, const float* alphas, const float* betas, std::size_t count, float sampleRate)
     {
+        if (!validParameters(frequencies, alphas, betas, count, sampleRate))
+            return false;
         storage_.assign(storageSize(count), 0.0f);
         return ResonatorBank::init(storage_.data(), storage_.size(), frequencies, alphas, betas, count, sampleRate);
     }
