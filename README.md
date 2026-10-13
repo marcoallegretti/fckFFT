@@ -58,7 +58,10 @@ Banks come in three storage flavours with the same interface:
 | `ResonatorBank` / `TrackingResonatorBank` | caller-provided buffer of `storageSize(n)` floats |
 
 `init` returns `false` for invalid parameters: a frequency outside `[0, sampleRate/2]`,
-`alpha` or `beta` outside `(0, 1]`, or storage that is too small.
+`alpha` or `beta` outside `(0, 1]` or too small for single precision (the coefficient
+actually stored must realise the requested value within 25 %, which holds for every
+`alpha` above about 2e-7), or storage that is too small. A rejected `init` or setter
+leaves the bank exactly as it was.
 
 ### Frequency tracking
 
@@ -200,7 +203,9 @@ semantics, so do not compile with `-ffinite-math-only` or `-ffast-math`.
 
 **Errors.** No function throws, except the `init` of the `Dynamic` banks, which can
 throw `std::bad_alloc` from `std::vector`. Every other member is `noexcept`. `init`
-returns `false` for invalid parameters, and an uninitialised bank ignores `process`.
+and the setters return `false` for invalid parameters and then change nothing, so a
+bank that fails to re-initialise keeps its previous configuration. An uninitialised
+bank ignores `process`.
 Out-of-range indices passed to the read-out functions, including any index on an
 uninitialised bank, are not checked.
 
