@@ -276,9 +276,9 @@ storage is inline. The owning banks do not convert to `ResonatorBank` or
 
 | Quantity | Limit |
 |---|---|
-| Phase | within 2e-6 rad of the double-precision recurrence at the heuristic time constants |
+| Phase | within 1.9e-6 rad of a double-precision evaluation with the same float32 coefficients. Rounding the coefficients to float32 shifts the frequency response slightly: against exact coefficients, over the 88 piano keys at the heuristic time constants and tones up to half a semitone off, the error has a median of 2.4e-6 rad and a maximum of 3.5e-5 rad, largest for low, detuned resonators |
 | Phase reference | advances by a correctly rounded 64-bit fraction of a turn per sample, so it drifts by at most 1.7e-19 rad per sample: measured, below 6e-8 rad after 30 days and 2e-7–4.4e-7 rad after one year at 44.1–96 kHz |
-| Time constant | relative error ≈ 3e-8 / α: 1.7e-4 at α = 1e-4, 1.8e-3 at α = 1e-5; α below 1e-5 (τ > 2 s at 48 kHz) is not recommended |
+| Time constant | relative error at most 4e-8 / α (median 1.5e-8 / α) from 20 Hz to 20 kHz: up to 4e-4 at α = 1e-4 and 3.9e-3 at α = 1e-5; α below 1e-5 (τ > 2 s at 48 kHz) is not recommended |
 | Input amplitude | exact up to ±1e18; larger values overflow the power |
 | Long-run stability | after one hour of input, magnitude and phase match the double-precision recurrence as closely as after one second (3.4e-7, 2e-7 rad) |
 
@@ -319,8 +319,8 @@ Exact tracking advances every resonator in lockstep, one sample at a time, becau
 each sample's threshold depends on the strongest resonator in the bank, so its state
 (96 bytes per resonator) streams through the cache on every sample. At 880 bins this
 state (84 KB) exceeds the L1 data cache of every x86 machine measured here (32–48 KB),
-yet the cost per bin at 880 bins is 0.8–1.0× the cost per bin at 88 bins, for the
-chord and EWMA rules, on this machine and on the four x86 runners below. Without a
+yet the cost per bin at 880 bins is 0.84–1.27× the cost per bin at 88 bins for the
+chord, tangent and EWMA rules on this machine, so cache misses do not dominate. Without a
 tracking rule the threshold has no effect on the state, so the `none` rule runs each
 group of resonators through up to 32 samples in registers and applies the per-sample
 peaks to the reference power afterwards, with bit-identical results.
@@ -407,8 +407,8 @@ Releases follow semantic versioning. `FCKFFT_VERSION_MAJOR`, `FCKFFT_VERSION_MIN
 `FCKFFT_VERSION_PATCH` and `FCKFFT_VERSION_PRERELEASE` (empty for final releases) in
 `fckfft.h` identify the headers in use. The CMake package takes its version from
 these macros, and configuration fails if the JUCE module declares a different one.
-Before 1.0, minor versions may break the API, so `find_package(fckfft 0.1)` accepts
-0.1.x only.
+Before 1.0, minor versions may break the API, so `find_package(fckfft 0.2)` accepts
+0.2.x only.
 
 ## Tests
 
@@ -423,7 +423,7 @@ block-size independence, stride handling, padding lanes, long-run stability,
 silence, invalid input, move semantics, parameter changes and the frequency
 utilities, the latter against librosa's mel tables. A randomised test compares 120
 configurations (1–40 bins from DC to Nyquist, α and β from 1e-3 to 1, random block
-sizes and strides) with a double-precision model; the worst error is 1.5e-6.
+sizes and strides) with a double-precision model; the worst error is 5.5e-7.
 
 Continuous integration runs the suite with GCC, Clang and MSVC on SSE2, AVX, AVX2/FMA
 and scalar builds, and on AVX-512 when the hosted runner's processor has it (the
