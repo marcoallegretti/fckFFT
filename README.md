@@ -263,18 +263,18 @@ Intel Xeon @ 2.1 GHz (shared virtual machine), 48 kHz, 48-sample blocks,
 
 | Kernel, bins | SSE2 | AVX2 + FMA | AVX-512 |
 |---|---|---|---|
-| fixed, 88 | 45 | 18 | 10 |
-| fixed, 264 | 128 | 50 | 31 |
-| fixed, 440 | 204 | 85 | 53 |
-| fixed, 880 | 424 | 170 | 96 |
-| tracking `none`, 88 | 97 | 57 | 24 |
-| tracking chord, 88 | 279 | 134 | 102 |
-| tracking tangent, 88 | 341 | 118 | 98 |
-| tracking EWMA, 88 | 572 | 273 | 160 |
+| fixed, 88 | 33 | 16 | 7.1 |
+| fixed, 264 | 90 | 46 | 21 |
+| fixed, 440 | 151 | 62 | 37 |
+| fixed, 880 | 345 | 138 | 89 |
+| tracking `none`, 88 | 74 | 57 | 24 |
+| tracking chord, 88 | 285 | 164 | 76 |
+| tracking tangent, 88 | 272 | 149 | 74 |
+| tracking EWMA, 88 | 392 | 208 | 115 |
 
 On the same machine and instruction set (AVX2 + FMA), the Rust
 [resonators](https://github.com/jhartquist/resonators) crate takes 68.6, 182, 276 and
-499 ns per sample for 88, 264, 440 and 880 bins, so the AVX2 fixed bank is 2.9–3.7×
+499 ns per sample for 88, 264, 440 and 880 bins, so the AVX2 fixed bank is 3.6–4.4×
 faster. Its README reports it 1.6× faster than noFFT on an Apple M2.
 
 The fixed bank runs each resonator as a complex one-pole filter at its own frequency,
@@ -338,7 +338,9 @@ cycles on this model. The test suite runs on a Cortex-M7 under QEMU (`mps2-an500
 
 Memory per resonator: 64 bytes for the fixed bank (32 of state and coefficients) and
 96 bytes for the tracking bank on the scalar kernel, plus padding to the kernel's lane
-count.
+count. Each bank aligns its state to 64 bytes inside its storage, and `storageSize`
+includes the 60 bytes this can take: on AVX-512, unaligned state made the tracking
+kernels 26–70% slower and the fixed kernel 19% slower.
 
 ## Differences from the reference implementations
 
