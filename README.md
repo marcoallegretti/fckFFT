@@ -127,11 +127,22 @@ scrolling spectrogram and reports its DSP load. Build it with
 
 ## SIMD selection
 
-The kernel is chosen at compile time from the target flags: AVX-512 (`-mavx512f`),
-AVX (`-mavx`, with FMA when `-mfma` or MSVC `/arch:AVX2` is set), SSE2 (the x86-64
-default), NEON, or scalar. Define `FCKFFT_NO_SIMD` to force the scalar kernel.
-Plugins built with default x86-64 flags use SSE2; enabling AVX2 and FMA roughly
-halves the cost.
+On x86, one binary carries SSE2, AVX2 + FMA and AVX-512 kernels and each bank picks
+one in `init` from the processor it runs on, so a plugin built with default flags
+runs AVX2 on every machine that has it. The default limit is AVX2: AVX-512 is used
+only when the build targets it (`-mavx512f`) or after `fckfft::setIsaLimit(Isa::avx512)`,
+because on some Xeon generations 512-bit arithmetic lowers the clock of the whole
+core, other plugins included. `setIsaLimit(Isa::sse2)` gives identical results on
+every machine; results otherwise differ between kernels in the last bits, since
+AVX2 fuses multiply-adds. `bank.isa()` reports the kernel in use.
+
+On ARM the kernel is chosen at compile time: NEON, or scalar on Cortex-M. Define
+`FCKFFT_NO_SIMD` to force the scalar kernel, or `FCKFFT_NO_DISPATCH` to compile only
+the kernel the build flags target.
+
+Every translation unit that uses fckFFT must be compiled with the same instruction
+set flags. The library's symbols carry those flags, so passing a bank between units
+built with different flags is a link error rather than silent corruption.
 
 ## Accuracy
 
