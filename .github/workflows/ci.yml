@@ -24,6 +24,7 @@ jobs:
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DCMAKE_CXX_FLAGS="${{ matrix.flags }}" -DFCKFFT_NO_SIMD=${{ matrix.scalar }}
       - run: cmake --build build --parallel
       - run: ctest --test-dir build --output-on-failure
+      - run: ./build/fckfft_tests | grep '^=='
       - run: lscpu | grep -E 'Model name|Flags' | cut -c1-200
       - run: ./build/fckfft_bench --bins 88,880 --blocks 48 --repetitions 9
 

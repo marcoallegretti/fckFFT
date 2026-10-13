@@ -215,7 +215,8 @@ time to 90 %.
 system calls. On every SIMD backend and on the GCC-built scalar kernel, the number of
 executed instructions per block is identical for silence, noise, full-scale tones and
 decaying signals (verified with Callgrind; Clang's scalar build varies by less than
-0.1%). On ARM VFP targets the scalar kernel selects
+0.1%), and the Cortex-M7 test run checks this for every kernel by counting
+instructions under QEMU. On ARM VFP targets the scalar kernel selects
 values with `vcmp`/`vmrs`/conditional moves instead of branches. The only
 data-dependent work is the recovery path described below, which adds 0.02% when it
 triggers. The read-outs take the same time at any uptime. On x86 (2.1 GHz Xeon),
@@ -410,12 +411,20 @@ utilities, the latter against librosa's mel tables. A randomised test compares 1
 configurations (1–40 bins from DC to Nyquist, α and β from 1e-3 to 1, random block
 sizes and strides) with a double-precision model; the worst error is 1.5e-6.
 
-Continuous integration runs the suite with GCC, Clang and MSVC on SSE2, AVX,
-AVX2/FMA, AVX-512 and scalar builds, under AddressSanitizer and
-UndefinedBehaviorSanitizer, on Apple Silicon, on AArch64 and ARMv7 NEON, and on a
-bare-metal Cortex-M7. It also builds both Daisy examples against libDaisy and the
-JUCE example plugin, builds a project against the installed CMake package
-(`tests/package`), and fuzzes both banks for two minutes.
+Continuous integration runs the suite with GCC, Clang and MSVC on SSE2, AVX, AVX2/FMA
+and scalar builds, and on AVX-512 when the hosted runner's processor has it (the
+runners change between jobs, and the log lists the backends each job tested). It runs
+the suite under AddressSanitizer and UndefinedBehaviorSanitizer, with `-ffast-math`
+and `/fp:fast`, on Apple Silicon, on AArch64 and ARMv7 under emulation, and on a
+bare-metal Cortex-M7 under QEMU. On the Cortex-M7 it also checks that every kernel
+executes the same number of instructions for silence, noise, a full-scale tone and a
+decay, and that the kernels' machine code contains no double-precision instructions
+and no calls other than `memset`. Other tests check that processing, read-outs and
+setters do not allocate after `init`, and that `process` restores the caller's
+floating-point control register. CI also builds both Daisy examples against libDaisy
+(the benchmark for both the Seed and the Patch SM) and the JUCE example plugin, builds
+a project against the installed CMake package (`tests/package`), and fuzzes both banks
+for two minutes.
 
 To fuzz locally (Clang):
 
