@@ -126,7 +126,7 @@ public:
             }
     }
 
-    void setThresholdDb(float db) noexcept { ratio_ = static_cast<float>(std::pow(10.0, static_cast<double>(db) / 10.0)); }
+    void setThresholdDb(float db) noexcept { ratio_ = std::exp2(db * 0.332192809f); }
 
     void setPowerTimeConstant(float seconds) noexcept
     {
@@ -175,37 +175,42 @@ public:
 
     float resonantFrequency(std::size_t k) const noexcept
     {
-        return static_cast<float>(-std::atan2(field(k, Kernel::kWi), field(k, Kernel::kWr)) * sampleRate_
-                                  / detail::kTwoPi);
+        return -std::atan2(field(k, Kernel::kWi), field(k, Kernel::kWr)) * (sampleRate_ * 0.159154943f);
     }
 
     float instantaneousFrequency(std::size_t k) const noexcept
     {
-        return resonantFrequency(k) + static_cast<float>(deltaPhase(k) * sampleRate_ / detail::kTwoPi);
+        return resonantFrequency(k) + deltaPhase(k) * (sampleRate_ * 0.159154943f);
     }
 
     void values(Complex* out) const noexcept
     {
-        for (std::size_t k = 0; k < size_; ++k)
-            out[k] = value(k);
+        forEach([&](std::size_t k, const float* g, std::size_t l) {
+            out[k] = Complex{g[Kernel::kSr * lanes_ + l], g[Kernel::kSi * lanes_ + l]};
+        });
     }
 
     void powers(float* out) const noexcept
     {
-        for (std::size_t k = 0; k < size_; ++k)
-            out[k] = power(k);
+        forEach([&](std::size_t k, const float* g, std::size_t l) {
+            const float re = g[Kernel::kSr * lanes_ + l], im = g[Kernel::kSi * lanes_ + l];
+            out[k] = re * re + im * im;
+        });
     }
 
     void magnitudes(float* out) const noexcept
     {
-        for (std::size_t k = 0; k < size_; ++k)
-            out[k] = magnitude(k);
+        forEach([&](std::size_t k, const float* g, std::size_t l) {
+            const float re = g[Kernel::kSr * lanes_ + l], im = g[Kernel::kSi * lanes_ + l];
+            out[k] = std::sqrt(re * re + im * im);
+        });
     }
 
     void phases(float* out) const noexcept
     {
-        for (std::size_t k = 0; k < size_; ++k)
-            out[k] = phase(k);
+        forEach([&](std::size_t k, const float* g, std::size_t l) {
+            out[k] = std::atan2(g[Kernel::kSi * lanes_ + l], g[Kernel::kSr * lanes_ + l]);
+        });
     }
 
     void resonantFrequencies(float* out) const noexcept
@@ -251,6 +256,18 @@ private:
     }
 
     std::size_t paddedSize() const noexcept { return numGroups_ * lanes_; }
+
+    template <class F>
+    void forEach(F&& f) const noexcept
+    {
+        std::size_t k = 0;
+        for (std::size_t g = 0; g < numGroups_; ++g)
+        {
+            const float* base = groups_ + g * Kernel::kFields * lanes_;
+            for (std::size_t l = 0; l < lanes_ && k < size_; ++l, ++k)
+                f(k, base, l);
+        }
+    }
 
     float& field(std::size_t k, int f) noexcept
     {
