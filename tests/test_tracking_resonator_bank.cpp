@@ -398,6 +398,87 @@ TEST_CASE(tracking_move_and_contract)
     CHECK_SAME(assigned.power(2), reference.power(2));
 }
 
+TEST_CASE(tracking_stride_matches_mono)
+{
+    const std::vector<float> f = semitones(300.0f, 13);
+    const std::vector<float> mono = signals::render(
+        2401, 48000.0, [](std::size_t i) { return 420.0 + 0.01 * static_cast<double>(i); },
+        [](std::size_t) { return 0.8; });
+    const TrackingRule rules[4] = {TrackingRule::none, TrackingRule::ewma, TrackingRule::normalizedChord,
+                                   TrackingRule::tangent};
+    for (std::size_t stride : {std::size_t(2), std::size_t(3)})
+    {
+        std::vector<float> interleaved(stride * mono.size(), 0.25f);
+        for (std::size_t i = 0; i < mono.size(); ++i)
+            interleaved[stride * i + stride - 1] = mono[i];
+        for (TrackingRule rule : rules)
+        {
+            fckfft::DynamicTrackingResonatorBank reference, strided;
+            CHECK(reference.init(f.data(), f.size(), 48000.0f, rule));
+            CHECK(strided.init(f.data(), f.size(), 48000.0f, rule));
+            reference.process(mono.data(), mono.size());
+            for (std::size_t i = 0; i < mono.size(); i += 37)
+                strided.process(interleaved.data() + stride * i + stride - 1, std::min<std::size_t>(37, mono.size() - i),
+                                stride);
+            CHECK_SAME(strided.accumulatedPower(), reference.accumulatedPower());
+            for (std::size_t k = 0; k < f.size(); ++k)
+            {
+                CHECK_SAME(strided.power(k), reference.power(k));
+                CHECK_SAME(strided.resonantFrequency(k), reference.resonantFrequency(k));
+                CHECK_SAME(strided.instantaneousFrequency(k), reference.instantaneousFrequency(k));
+            }
+        }
+    }
+}
+
+TEST_CASE(tracking_move_keeps_configuration)
+{
+    const std::vector<float> f = semitones(300.0f, 13);
+    const std::vector<float> x = signals::tone(4800, 48000.0, 452.0);
+    auto configure = [&](fckfft::DynamicTrackingResonatorBank& bank) {
+        CHECK(bank.init(f.data(), f.size(), 48000.0f, TrackingRule::tangent, -40.0f));
+        bank.setPowerTimeConstant(0.05f);
+        CHECK(bank.setGamma(3, 0.004f));
+        bank.process(x.data(), 1000);
+    };
+    fckfft::DynamicTrackingResonatorBank twin, source;
+    configure(twin);
+    configure(source);
+    fckfft::DynamicTrackingResonatorBank moved(std::move(source));
+    twin.process(x.data() + 1000, x.size() - 1000);
+    moved.process(x.data() + 1000, x.size() - 1000);
+    CHECK(moved.rule() == TrackingRule::tangent);
+    CHECK_SAME(moved.thresholdDb(), twin.thresholdDb());
+    CHECK_SAME(moved.accumulatedPower(), twin.accumulatedPower());
+    for (std::size_t k = 0; k < f.size(); ++k)
+    {
+        CHECK_SAME(moved.gamma(k), twin.gamma(k));
+        CHECK_SAME(moved.power(k), twin.power(k));
+        CHECK_SAME(moved.resonantFrequency(k), twin.resonantFrequency(k));
+    }
+}
+
+TEST_CASE(tracking_reinit_matches_fresh_bank)
+{
+    const std::vector<float> first = semitones(200.0f, 21), second = semitones(330.0f, 7);
+    const std::vector<float> x = signals::tone(4800, 48000.0, 452.0);
+    fckfft::DynamicTrackingResonatorBank reused, fresh;
+    CHECK(reused.init(first.data(), first.size(), 48000.0f, TrackingRule::ewma, -30.0f));
+    reused.setPowerTimeConstant(0.2f);
+    reused.process(x.data(), x.size());
+    CHECK(reused.init(second.data(), second.size(), 44100.0f, TrackingRule::normalizedChord));
+    CHECK(fresh.init(second.data(), second.size(), 44100.0f, TrackingRule::normalizedChord));
+    reused.process(x.data(), x.size());
+    fresh.process(x.data(), x.size());
+    CHECK(reused.size() == second.size());
+    CHECK_SAME(reused.accumulatedPower(), fresh.accumulatedPower());
+    for (std::size_t k = 0; k < second.size(); ++k)
+    {
+        CHECK_SAME(reused.power(k), fresh.power(k));
+        CHECK_SAME(reused.resonantFrequency(k), fresh.resonantFrequency(k));
+    }
+}
+
 TEST_CASE(tracking_failed_init_keeps_configuration)
 {
     std::vector<float> f(12);

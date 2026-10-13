@@ -520,6 +520,53 @@ TEST_CASE(bank_rejects_unrepresentable_time_constants)
     CHECK(check::finite(bank.magnitude(0)));
 }
 
+TEST_CASE(bank_move_keeps_configuration)
+{
+    const std::vector<float> f = semitoneBins(110.0f, 37);
+    const std::vector<float> x = signals::noise(4800, 21u, 0.5f);
+    auto configure = [&](fckfft::DynamicResonatorBank& bank) {
+        CHECK(bank.init(f.data(), f.size(), 48000.0f));
+        bank.process(x.data(), 1000);
+        CHECK(bank.setFrequency(5, 171.0f));
+        CHECK(bank.setAlpha(6, 0.01f));
+        CHECK(bank.setBeta(7, 0.02f));
+        bank.process(x.data() + 1000, 1000);
+    };
+    fckfft::DynamicResonatorBank twin, source;
+    configure(twin);
+    configure(source);
+    fckfft::DynamicResonatorBank moved(std::move(source));
+    twin.process(x.data() + 2000, x.size() - 2000);
+    moved.process(x.data() + 2000, x.size() - 2000);
+    CHECK(moved.samplesProcessed() == twin.samplesProcessed());
+    for (std::size_t k = 0; k < f.size(); ++k)
+    {
+        CHECK_SAME(moved.frequency(k), twin.frequency(k));
+        CHECK_SAME(moved.value(k).re, twin.value(k).re);
+        CHECK_SAME(moved.value(k).im, twin.value(k).im);
+    }
+}
+
+TEST_CASE(bank_reinit_matches_fresh_bank)
+{
+    const std::vector<float> first = semitoneBins(55.0f, 61), second = semitoneBins(300.0f, 11);
+    const std::vector<float> x = signals::noise(4800, 8u, 0.5f);
+    fckfft::DynamicResonatorBank reused, fresh;
+    CHECK(reused.init(first.data(), first.size(), 48000.0f));
+    reused.process(x.data(), x.size());
+    CHECK(reused.setFrequency(2, 61.0f));
+    CHECK(reused.init(second.data(), second.size(), 44100.0f));
+    CHECK(fresh.init(second.data(), second.size(), 44100.0f));
+    reused.process(x.data(), x.size());
+    fresh.process(x.data(), x.size());
+    CHECK(reused.size() == second.size() && reused.samplesProcessed() == fresh.samplesProcessed());
+    for (std::size_t k = 0; k < second.size(); ++k)
+    {
+        CHECK_SAME(reused.value(k).re, fresh.value(k).re);
+        CHECK_SAME(reused.value(k).im, fresh.value(k).im);
+    }
+}
+
 TEST_CASE(bank_failed_init_keeps_configuration)
 {
     const std::vector<float> f = semitoneBins(200.0f, 30);
