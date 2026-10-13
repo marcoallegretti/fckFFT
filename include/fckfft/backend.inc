@@ -36,7 +36,7 @@ struct Ops
                 "vselge.f32 %0, %3, %4"
                 : "=t"(r)
                 : "t"(a), "t"(b), "t"(t), "t"(f)
-                : "cc");
+                : FCKFFT_VFP_FLAGS);
         return r;
     }
 #else
@@ -49,7 +49,7 @@ struct Ops
                 "vmovge.f32 %0, %3"
                 : "+t"(r)
                 : "t"(a), "t"(b), "t"(t)
-                : "cc");
+                : FCKFFT_VFP_FLAGS);
         return r;
     }
 #endif

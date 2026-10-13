@@ -14,6 +14,12 @@
 #define FCKFFT_INLINE inline __attribute__((always_inline))
 #endif
 
+#if defined(__GNUC__) && !defined(__clang__)
+#define FCKFFT_VFP_FLAGS "cc", "vfpcc"
+#else
+#define FCKFFT_VFP_FLAGS "cc"
+#endif
+
 #define FCKFFT_BACKEND_SCALAR 1
 #define FCKFFT_BACKEND_SSE2 2
 #define FCKFFT_BACKEND_AVX 3
