@@ -537,10 +537,116 @@ struct TrackingKernel : TrackingLayout
             }
     }
 
+    struct Untracked
+    {
+        V oa, ob, ab, gm, og, wr, wi, ur, ui, sr, si, zr, zi, pr, pi, qr, qi, pw;
+
+        FCKFFT_INLINE explicit Untracked(const float* g)
+            : oa(ld(g, kOa)), ob(ld(g, kOb)), ab(ld(g, kAb)), gm(ld(g, kGm)), og(ld(g, kOg)), wr(ld(g, kWr)),
+              wi(ld(g, kWi)), ur(ld(g, kUr)), ui(ld(g, kUi)), sr(ld(g, kSr)), si(ld(g, kSi)), zr(ld(g, kZr)),
+              zi(ld(g, kZi)), pr(ld(g, kPr)), pi(ld(g, kPi)), qr(ld(g, kQr)), qi(ld(g, kQi)), pw(ld(g, kPw))
+        {
+        }
+
+        FCKFFT_INLINE void accumulate(V s)
+        {
+            ur = Ops::madd(oa, ur, Ops::mul(s, zr));
+            ui = Ops::madd(oa, ui, Ops::mul(s, zi));
+            sr = Ops::madd(ob, sr, Ops::mul(ab, ur));
+            si = Ops::madd(ob, si, Ops::mul(ab, ui));
+            pw = Ops::madd(sr, sr, Ops::mul(si, si));
+        }
+
+        FCKFFT_INLINE void track()
+        {
+            const V dr = Ops::madd(sr, pr, Ops::mul(si, pi));
+            const V di = Ops::nmadd(si, pr, Ops::mul(sr, pi));
+            pr = sr;
+            pi = si;
+            qr = Ops::madd(og, qr, Ops::mul(gm, dr));
+            qi = Ops::madd(og, qi, Ops::mul(gm, di));
+            const V z0 = zr, z1 = zi;
+            zr = Ops::nmadd(z1, wi, Ops::mul(z0, wr));
+            zi = Ops::madd(z0, wi, Ops::mul(z1, wr));
+        }
+
+        FCKFFT_INLINE void store(float* g, bool renorm)
+        {
+            if (renorm)
+            {
+                renormalize(zr, zi);
+                renormalize(wr, wi);
+            }
+            st(g, kUr, ur);
+            st(g, kUi, ui);
+            st(g, kSr, sr);
+            st(g, kSi, si);
+            st(g, kPw, pw);
+            st(g, kPr, pr);
+            st(g, kPi, pi);
+            st(g, kQr, qr);
+            st(g, kQi, qi);
+            st(g, kZr, zr);
+            st(g, kZi, zi);
+            st(g, kWr, wr);
+            st(g, kWi, wi);
+        }
+    };
+
+    static void processUntracked(float* groups, std::size_t numGroups, const float* x, std::size_t n,
+                                 std::size_t stride, bool renormalizeAtEnd, float sigma, float& accPower)
+    {
+        constexpr std::size_t kChunk = 32;
+        const float omSigma = 1.0f - sigma;
+        const V zero = Ops::set(0.0f);
+        V peaks[kChunk];
+        for (std::size_t start = 0; start < n; start += kChunk)
+        {
+            const std::size_t m = n - start < kChunk ? n - start : kChunk;
+            const bool last = start + m == n;
+            for (std::size_t i = 0; i < m; ++i)
+                peaks[i] = zero;
+            for (std::size_t g = 0; g < numGroups; ++g)
+            {
+                float* base = groups + g * kGroupFloats;
+                Untracked a(base), b(base + kWidth);
+                std::size_t i = 0;
+                if (start == 0)
+                {
+                    const V s = Ops::set(x[0]);
+                    a.accumulate(s);
+                    b.accumulate(s);
+                    peaks[0] = Ops::max(peaks[0], Ops::max(a.pw, b.pw));
+                    i = 1;
+                }
+                for (; i < m; ++i)
+                {
+                    const V s = Ops::set(x[(start + i) * stride]);
+                    a.track();
+                    b.track();
+                    a.accumulate(s);
+                    b.accumulate(s);
+                    peaks[i] = Ops::max(peaks[i], Ops::max(a.pw, b.pw));
+                }
+                if (last)
+                {
+                    a.track();
+                    b.track();
+                }
+                a.store(base, last && renormalizeAtEnd);
+                b.store(base + kWidth, last && renormalizeAtEnd);
+            }
+            for (std::size_t i = 0; i < m; ++i)
+                accPower = omSigma * accPower + sigma * Ops::reduceMax(peaks[i]);
+        }
+    }
+
     template <TrackingRule Rule>
     static void process(float* groups, std::size_t numGroups, const float* x, std::size_t n, std::size_t stride,
                         bool renormalizeAtEnd, float sigma, float ratio, float& accPower)
     {
+        if (Rule == TrackingRule::none)
+            return processUntracked(groups, numGroups, x, n, stride, renormalizeAtEnd, sigma, accPower);
         const float omSigma = 1.0f - sigma;
         V peak = Ops::set(0.0f);
         {
@@ -581,7 +687,6 @@ struct TrackingKernel : TrackingLayout
         }
     }
 };
-
 
 inline void processBank(float* groups, std::size_t numGroups, const float* x, std::size_t n, std::size_t stride,
                         bool sanitize)
