@@ -61,6 +61,9 @@
 #endif
 #elif FCKFFT_BASELINE == FCKFFT_BACKEND_NEON
 #include <arm_neon.h>
+#if defined(_MSC_VER) && defined(_M_ARM64)
+#include <intrin.h>
+#endif
 #endif
 
 #if defined(__SSE__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 1)
@@ -132,6 +135,9 @@ public:
         __asm__ __volatile__("msr fpcr, %0" : : "r"(saved_ | (1ull << 24)));
     }
     ~ScopedFlushDenormals() { __asm__ __volatile__("msr fpcr, %0" : : "r"(saved_)); }
+#elif defined(_MSC_VER) && defined(_M_ARM64)
+    ScopedFlushDenormals() : saved_(_ReadStatusReg(ARM64_FPCR)) { _WriteStatusReg(ARM64_FPCR, saved_ | (1ll << 24)); }
+    ~ScopedFlushDenormals() { _WriteStatusReg(ARM64_FPCR, saved_); }
 #elif defined(__arm__) && defined(__ARM_FP) && (defined(__GNUC__) || defined(__clang__))
     ScopedFlushDenormals()
     {
@@ -151,6 +157,8 @@ private:
     unsigned int saved_;
 #elif defined(__aarch64__) && (defined(__GNUC__) || defined(__clang__))
     unsigned long long saved_ = 0;
+#elif defined(_MSC_VER) && defined(_M_ARM64)
+    __int64 saved_;
 #elif defined(__arm__) && defined(__ARM_FP) && (defined(__GNUC__) || defined(__clang__))
     unsigned int saved_ = 0;
 #endif

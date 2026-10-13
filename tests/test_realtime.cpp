@@ -60,6 +60,17 @@ void setControlRegister(std::uint64_t value)
     __asm__ __volatile__("msr fpcr, %0" : : "r"(value));
 }
 constexpr std::uint64_t kFlushBits = 1u << 24;
+#elif defined(_MSC_VER) && defined(_M_ARM64)
+constexpr std::uint64_t kControlMask = 0x03C00000u;
+std::uint64_t controlRegister()
+{
+    return static_cast<std::uint64_t>(_ReadStatusReg(ARM64_FPCR));
+}
+void setControlRegister(std::uint64_t value)
+{
+    _WriteStatusReg(ARM64_FPCR, static_cast<__int64>(value));
+}
+constexpr std::uint64_t kFlushBits = 1u << 24;
 #elif defined(__arm__) && defined(__ARM_FP) && (defined(__GNUC__) || defined(__clang__))
 constexpr std::uint64_t kControlMask = 0x03C00000u;
 std::uint64_t controlRegister()

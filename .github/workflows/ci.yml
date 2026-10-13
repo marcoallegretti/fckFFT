@@ -90,6 +90,16 @@ jobs:
       - run: (Get-CimInstance Win32_Processor).Name
       - run: build/Release/fckfft_bench.exe --bins 88,880 --blocks 48 --repetitions 9
 
+  windows-arm:
+    runs-on: windows-11-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S . -B build -DCMAKE_CXX_FLAGS="/EHsc"
+      - run: cmake --build build --config Release --parallel
+      - run: ctest --test-dir build -C Release --output-on-failure
+      - run: build/Release/fckfft_tests.exe | Select-String '^=='
+
   macos:
     runs-on: macos-latest
     timeout-minutes: 30
