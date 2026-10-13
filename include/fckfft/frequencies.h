@@ -24,6 +24,8 @@ inline void logUniformFrequencies(float minFrequency, float binsPerOctave, std::
 
 inline void logSpacedFrequencies(float minFrequency, float maxFrequency, std::size_t count, float* out)
 {
+    if (count == 0)
+        return;
     if (count == 1)
     {
         out[0] = minFrequency;
@@ -37,6 +39,8 @@ inline void logSpacedFrequencies(float minFrequency, float maxFrequency, std::si
 
 inline void linearSpacedFrequencies(float minFrequency, float maxFrequency, std::size_t count, float* out)
 {
+    if (count == 0)
+        return;
     if (count == 1)
     {
         out[0] = minFrequency;
@@ -76,6 +80,8 @@ inline float melToHz(float mel, bool htk = false)
 
 inline void melFrequencies(float minFrequency, float maxFrequency, std::size_t count, float* out, bool htk = false)
 {
+    if (count == 0)
+        return;
     if (count == 1)
     {
         out[0] = minFrequency;

@@ -133,3 +133,15 @@ TEST_CASE(heuristic_alpha_properties)
     for (int i = 0; i < 3; ++i)
         CHECK_NEAR(as[i], fckfft::heuristicAlpha(fs[i], sr), 0.0);
 }
+
+TEST_CASE(frequency_layouts_accept_zero_count)
+{
+    float guard[3] = {-1.0f, -1.0f, -1.0f};
+    fckfft::logSpacedFrequencies(100.0f, 1000.0f, 0, guard + 1);
+    fckfft::linearSpacedFrequencies(100.0f, 1000.0f, 0, guard + 1);
+    fckfft::melFrequencies(100.0f, 1000.0f, 0, guard + 1);
+    fckfft::melFrequencies(100.0f, 1000.0f, 0, guard + 1, true);
+    fckfft::logUniformFrequencies(100.0f, 12.0f, 0, guard + 1);
+    for (float g : guard)
+        CHECK(g == -1.0f);
+}
