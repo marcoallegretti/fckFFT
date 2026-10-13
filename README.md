@@ -63,6 +63,10 @@ actually stored must realise the requested value within 25 %, which holds for ev
 `alpha` above about 2e-7), or storage that is too small. A rejected `init` or setter
 leaves the bank exactly as it was.
 
+`setFrequency`, `setAlpha` and `setBeta` retune one resonator while it runs. The
+resonator keeps its current value, and its phase continues from where it was at the
+new frequency.
+
 ### Frequency tracking
 
 ```cpp
@@ -198,9 +202,10 @@ decaying signals (verified with Callgrind; Clang's scalar build varies by less t
 0.1%). On ARM VFP targets the scalar kernel selects
 values with `vcmp`/`vmrs`/conditional moves instead of branches. The only
 data-dependent work is the recovery path described below, which adds 0.02% when it
-triggers. `powers` and `magnitudes` cost a few nanoseconds per resonator; `values`
-and `phases` rotate each resonator back to the baseband with a sine and cosine, about
-30 and 60 ns per resonator on x86.
+triggers. The read-outs take the same time at any uptime. On x86 (2.1 GHz Xeon),
+`powers` and `magnitudes` cost 1–2 ns per resonator, `values` 4–5 ns and
+`phases` 16–21 ns; on the Cortex-M7 they execute 22, 29, 82 and 190 instructions
+per resonator.
 
 **Floating-point environment.** `process()` scopes flush-to-zero on x86 (MXCSR),
 AArch64 (FPCR) and 32-bit ARM VFP (FPSCR), so decaying resonators never hit denormal
@@ -235,7 +240,8 @@ storage is inline. The owning banks do not convert to `ResonatorBank` or
 
 | Quantity | Limit |
 |---|---|
-| Phase | within 2e-6 rad of the double-precision recurrence at the heuristic time constants, with no drift (the frequency error measured over one hour is below 1e-11) |
+| Phase | within 2e-6 rad of the double-precision recurrence at the heuristic time constants |
+| Phase reference | advances by a correctly rounded 64-bit fraction of a turn per sample, so it drifts by at most 1.7e-19 rad per sample: measured, below 6e-8 rad after 30 days and 2e-7–4.4e-7 rad after one year at 44.1–96 kHz |
 | Time constant | relative error ≈ 3e-8 / α: 1.7e-4 at α = 1e-4, 1.8e-3 at α = 1e-5; α below 1e-5 (τ > 2 s at 48 kHz) is not recommended |
 | Input amplitude | exact up to ±1e18; larger values overflow the power |
 | Long-run stability | after one hour of input, magnitude and phase match the double-precision recurrence as closely as after one second (3.4e-7, 2e-7 rad) |
@@ -319,7 +325,7 @@ uses a copy-free formulation with 11 operations per resonator per sample instead
 the 8 fused operations of the SIMD kernels; the previous phasor kernel measured 17.5
 cycles on this model. The test suite runs on a Cortex-M7 under QEMU (`mps2-an500`).
 
-Memory per resonator: 48 bytes for the fixed bank (32 of state and coefficients) and
+Memory per resonator: 64 bytes for the fixed bank (32 of state and coefficients) and
 96 bytes for the tracking bank on the scalar kernel, plus padding to the kernel's lane
 count.
 
@@ -344,7 +350,7 @@ model:
   has no separate tail path.
 - **Resonator form.** The fixed bank has no phasor: each resonator is a complex
   one-pole filter at its own frequency, and the read-out rotates the state back to
-  the baseband from the sample count. Magnitudes match the reference recurrence
+  the baseband from an integer phase that counts samples exactly. Magnitudes match the reference recurrence
   within rounding, the phase cannot drift, and results do not depend on block size.
   Tracking banks keep the phasor form and renormalise it every 32 samples, counted
   from the last reset, instead of once per `update` call.
