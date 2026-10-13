@@ -492,7 +492,13 @@ struct TrackingKernel : TrackingLayout
             V tr = Ops::nmadd(wi, ci, Ops::mul(wr, cr));
             V ti = Ops::madd(wr, ci, Ops::mul(wi, cr));
             if (Rule != TrackingRule::ewma)
-                renormalize(tr, ti);
+            {
+                const V m = Ops::madd(tr, tr, Ops::mul(ti, ti));
+                const V tiny = Ops::set(1e-30f);
+                const V k = Ops::rsqrt(Ops::max(m, tiny));
+                tr = Ops::selectGe(m, tiny, Ops::mul(tr, k), wr);
+                ti = Ops::selectGe(m, tiny, Ops::mul(ti, k), wi);
+            }
             const V pw = ld(g, kPw);
             wr = Ops::selectGe(pw, threshold, tr, ld(g, kNwr));
             wi = Ops::selectGe(pw, threshold, ti, ld(g, kNwi));

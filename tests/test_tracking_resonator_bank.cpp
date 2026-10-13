@@ -123,6 +123,32 @@ TEST_CASE(tracking_matches_double_reference_model)
         }
 }
 
+TEST_CASE(tracking_matches_model_at_wide_bandwidths)
+{
+    const double sr = 48000.0;
+    const std::vector<float> f = semitones(400.0f, 12);
+    const std::vector<float> x = signals::tone(24000, sr, 452.0, 0.8);
+    for (int rule = 2; rule < 4; ++rule)
+        for (float a : {0.1f, 0.3f, 0.5f})
+        {
+            const std::vector<float> alphas(f.size(), a), gammas(f.size(), 0.5f * a);
+            signals::TrackingModel model(f, sr, rule, -60.0, a);
+            fckfft::DynamicTrackingResonatorBank bank;
+            CHECK(bank.init(f.data(), alphas.data(), alphas.data(), gammas.data(), f.size(), static_cast<float>(sr),
+                            static_cast<TrackingRule>(rule), -60.0f));
+            double maxMagnitude = 0.0;
+            for (std::size_t i = 0; i < x.size(); i += 48)
+            {
+                for (std::size_t j = 0; j < 48; ++j)
+                    model.step(x[i + j]);
+                bank.process(x.data() + i, 48);
+                for (std::size_t k = 0; k < f.size(); ++k)
+                    maxMagnitude = std::max(maxMagnitude, std::fabs(bank.magnitude(k) - model.magnitude(k)));
+            }
+            CHECK_NEAR(maxMagnitude, 0.0, 1e-5);
+        }
+}
+
 TEST_CASE(tracking_recovers_after_dropout)
 {
     const double sr = 48000.0;

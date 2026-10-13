@@ -52,12 +52,13 @@ struct TrackingModel
     std::vector<double> alpha, beta, gamma;
     std::vector<std::complex<double>> r, rr, previous, z, w, naturalW, d;
 
-    TrackingModel(const std::vector<float>& frequencies, double sr, int ruleIndex, double thresholdDb)
+    TrackingModel(const std::vector<float>& frequencies, double sr, int ruleIndex, double thresholdDb,
+                  float fixedAlpha = 0.0f)
         : rule(ruleIndex), sampleRate(sr), ratio(std::pow(10.0, thresholdDb / 10.0))
     {
         for (float f : frequencies)
         {
-            const double a = fckfft::heuristicAlpha(f, static_cast<float>(sr));
+            const double a = fixedAlpha > 0.0f ? fixedAlpha : fckfft::heuristicAlpha(f, static_cast<float>(sr));
             alpha.push_back(a);
             beta.push_back(a);
             gamma.push_back(0.5 * a);
