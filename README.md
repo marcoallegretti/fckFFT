@@ -259,7 +259,7 @@ Intel Xeon @ 2.1 GHz (shared virtual machine), 48 kHz, 48-sample blocks,
 | fixed, 264 | 128 | 50 | 31 |
 | fixed, 440 | 204 | 85 | 53 |
 | fixed, 880 | 424 | 170 | 96 |
-| tracking `none`, 88 | 107 | 84 | 65 |
+| tracking `none`, 88 | 97 | 57 | 24 |
 | tracking chord, 88 | 295 | 158 | 106 |
 | tracking tangent, 88 | 307 | 126 | 102 |
 | tracking EWMA, 88 | 572 | 273 | 160 |
@@ -284,7 +284,10 @@ each sample's threshold depends on the strongest resonator in the bank, so its s
 (96 bytes per resonator) streams through the cache on every sample. At 880 bins this
 state (84 KB) exceeds the L1 data cache of every x86 machine measured here (32–48 KB),
 yet the cost per bin at 880 bins is 0.8–1.0× the cost per bin at 88 bins, for the
-chord and EWMA rules, on this machine and on the four x86 runners below.
+chord and EWMA rules, on this machine and on the four x86 runners below. Without a
+tracking rule the threshold has no effect on the state, so the `none` rule runs each
+group of resonators through up to 32 samples in registers and applies the per-sample
+peaks to the reference power afterwards, with bit-identical results.
 
 ### Continuous integration runners
 
@@ -314,7 +317,7 @@ loops that GCC generates with libDaisy's flags. These are model estimates; run
 | Kernel | Cycles per resonator per sample | CPU at 480 MHz, 48 kHz |
 |---|---|---|
 | fixed | 15.8 | 88 bins: 14%, 256 bins: 40% |
-| tracking `none` | ~86 | 49 bins: 42% |
+| tracking `none` | ~50 | 49 bins: 24% |
 | tracking tangent / chord | ~159 / ~164 | 32 bins: ~52% |
 | tracking EWMA | ~233 | 32 bins: ~75% |
 
