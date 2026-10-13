@@ -131,7 +131,7 @@ TEST_CASE(heuristic_alpha_properties)
     float fs[3] = {100.0f, 200.0f, 300.0f}, as[3];
     fckfft::heuristicAlphas(fs, 3, sr, as);
     for (int i = 0; i < 3; ++i)
-        CHECK_NEAR(as[i], fckfft::heuristicAlpha(fs[i], sr), 0.0);
+        CHECK_SAME(as[i], fckfft::heuristicAlpha(fs[i], sr));
 }
 
 TEST_CASE(frequency_layouts_accept_zero_count)

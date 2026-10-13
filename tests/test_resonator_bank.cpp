@@ -107,7 +107,7 @@ TEST_CASE(bank_matched_tone_power)
     bank.values(values);
     for (int k = 0; k < 3; ++k)
     {
-        CHECK_NEAR(powers[k], bank.power(k), 0.0);
+        CHECK_SAME(powers[k], bank.power(k));
         CHECK_NEAR(mags[k], std::sqrt(powers[k]), 1e-7);
         CHECK_NEAR(phases[k], std::atan2(values[k].im, values[k].re), 1e-7);
     }
@@ -155,8 +155,8 @@ TEST_CASE(bank_stride_matches_mono)
     strided.process(interleaved.data() + 1, right.size(), 2);
     for (std::size_t k = 0; k < f.size(); ++k)
     {
-        CHECK_NEAR(strided.value(k).re, mono.value(k).re, 0.0);
-        CHECK_NEAR(strided.value(k).im, mono.value(k).im, 0.0);
+        CHECK_SAME(strided.value(k).re, mono.value(k).re);
+        CHECK_SAME(strided.value(k).im, mono.value(k).im);
     }
 }
 
@@ -295,8 +295,8 @@ TEST_CASE(bank_static_and_dynamic_agree)
     e.process(x.data(), x.size());
     for (std::size_t k = 0; k < f.size(); ++k)
     {
-        CHECK_NEAR(s.value(k).re, d.value(k).re, 0.0);
-        CHECK_NEAR(e.value(k).im, d.value(k).im, 0.0);
+        CHECK_SAME(s.value(k).re, d.value(k).re);
+        CHECK_SAME(e.value(k).im, d.value(k).im);
     }
 }
 
@@ -389,12 +389,12 @@ TEST_CASE(bank_move_and_contract)
     {
         bank.process(x.data(), x.size());
         for (std::size_t k = 0; k < 4; ++k)
-            CHECK_NEAR(bank.power(k), reference.power(k), 0.0);
+            CHECK_SAME(bank.power(k), reference.power(k));
     }
     fckfft::DynamicResonatorBank assigned;
     assigned = std::move(channels[0]);
     CHECK(assigned.isInitialized() && !channels[0].isInitialized());
-    CHECK_NEAR(assigned.power(2), reference.power(2), 0.0);
+    CHECK_SAME(assigned.power(2), reference.power(2));
 }
 
 TEST_CASE(bank_matches_double_model_on_random_configurations)
@@ -545,7 +545,7 @@ TEST_CASE(bank_failed_init_keeps_configuration)
         CHECK(bank.isInitialized() && bank.size() == f.size() && bank.sampleRate() == 48000.0f);
         bank.process(x.data(), x.size());
         for (std::size_t k = 0; k < f.size(); ++k)
-            CHECK_NEAR(bank.power(k), twin.power(k), 0.0);
+            CHECK_SAME(bank.power(k), twin.power(k));
     };
     unchanged(dynamic);
     unchanged(fixed);
@@ -633,7 +633,7 @@ TEST_CASE(bank_readouts_cover_documented_amplitudes)
         bank.magnitudes(mags);
         bank.powers(powers);
         CHECK_NEAR(mags[0] / amplitude, 0.5, 0.01);
-        CHECK_NEAR(bank.magnitude(0), mags[0], 0.0);
+        CHECK_SAME(bank.magnitude(0), mags[0]);
         CHECK_NEAR(powers[0] / (amplitude * amplitude), 0.25, 0.01);
         CHECK(check::finite(mags[1]) && check::finite(powers[1]));
     }

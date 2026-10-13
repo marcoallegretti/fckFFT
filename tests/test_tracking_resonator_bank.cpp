@@ -222,8 +222,8 @@ TEST_CASE(tracking_block_size_independent)
             b.process(x.data() + i, std::min<std::size_t>(5, x.size() - i));
         for (std::size_t k = 0; k < f.size(); ++k)
         {
-            CHECK_NEAR(a.magnitude(k), b.magnitude(k), 0.0);
-            CHECK_NEAR(a.resonantFrequency(k), b.resonantFrequency(k), 0.0);
+            CHECK_SAME(a.magnitude(k), b.magnitude(k));
+            CHECK_SAME(a.resonantFrequency(k), b.resonantFrequency(k));
         }
     }
 }
@@ -390,12 +390,12 @@ TEST_CASE(tracking_move_and_contract)
     {
         bank.process(x.data(), x.size());
         for (std::size_t k = 0; k < 4; ++k)
-            CHECK_NEAR(bank.power(k), reference.power(k), 0.0);
+            CHECK_SAME(bank.power(k), reference.power(k));
     }
     fckfft::DynamicTrackingResonatorBank assigned;
     assigned = std::move(channels[0]);
     CHECK(assigned.isInitialized() && !channels[0].isInitialized());
-    CHECK_NEAR(assigned.power(2), reference.power(2), 0.0);
+    CHECK_SAME(assigned.power(2), reference.power(2));
 }
 
 TEST_CASE(tracking_failed_init_keeps_configuration)
@@ -419,7 +419,7 @@ TEST_CASE(tracking_failed_init_keeps_configuration)
     fixed.process(x.data(), x.size());
     for (std::size_t k = 0; k < f.size(); ++k)
     {
-        CHECK_NEAR(dynamic.power(k), twin.power(k), 0.0);
-        CHECK_NEAR(fixed.resonantFrequency(k), twin.resonantFrequency(k), 0.0);
+        CHECK_SAME(dynamic.power(k), twin.power(k));
+        CHECK_SAME(fixed.resonantFrequency(k), twin.resonantFrequency(k));
     }
 }
