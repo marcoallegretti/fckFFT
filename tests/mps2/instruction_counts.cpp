@@ -62,7 +62,7 @@ std::uint32_t ticks(Bank& bank)
 }
 
 template <class Init>
-bool check(const char* name, Init init)
+bool check(const char* name, std::uint32_t budget, Init init)
 {
     std::uint32_t counts[kSignals];
     std::uint32_t lowest = 0xFFFFFFFFu, highest = 0;
@@ -73,11 +73,11 @@ bool check(const char* name, Init init)
         lowest = counts[signal] < lowest ? counts[signal] : lowest;
         highest = counts[signal] > highest ? counts[signal] : highest;
     }
-    const bool ok = highest - lowest <= kToleranceTicks;
+    const bool ok = highest - lowest <= kToleranceTicks && highest <= budget + budget / 50;
     std::printf("%s %-8s", ok ? "PASS" : "FAIL", name);
     for (int signal = 0; signal < kSignals; ++signal)
         std::printf("  %s %lu", kSignalNames[signal], static_cast<unsigned long>(counts[signal]));
-    std::printf("  ticks\n");
+    std::printf("  ticks, budget %lu\n", static_cast<unsigned long>(budget));
     return ok;
 }
 
@@ -89,13 +89,14 @@ int main()
     *kSysTickCurrent = 0;
     *kSysTickControl = 5u;
     fckfft::logSpacedFrequencies(27.5f, 4186.0f, 88, frequencies);
-    bool ok = check("fixed", [] {
+    bool ok = check("fixed", 24198, [] {
         fixedBank.init(frequencies, 88, kSampleRate);
         return ticks(fixedBank);
     });
     const char* const names[4] = {"none", "ewma", "chord", "tangent"};
+    const std::uint32_t budgets[4] = {39203, 139493, 103099, 101678};
     for (int rule = 0; rule < 4; ++rule)
-        ok = check(names[rule], [rule] {
+        ok = check(names[rule], budgets[rule], [rule] {
                  trackingBank.init(frequencies, 49, kSampleRate, static_cast<fckfft::TrackingRule>(rule));
                  return ticks(trackingBank);
              }) && ok;

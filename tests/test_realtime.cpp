@@ -1,3 +1,4 @@
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <new>
@@ -153,4 +154,26 @@ TEST_CASE(process_restores_floating_point_control)
         CHECK((controlRegister() & kControlMask) == (host & kControlMask));
     }
     setControlRegister(original);
+}
+
+TEST_CASE(process_flushes_denormal_state)
+{
+    const std::vector<float> f = testFrequencies(9);
+    std::vector<float> x(48, 0.0f);
+    fckfft::DynamicTrackingResonatorBank bank;
+    CHECK(bank.init(f.data(), f.size(), 48000.0f, fckfft::TrackingRule::none));
+    x[0] = 1e-30f;
+    bank.process(x.data(), x.size());
+    x[0] = 0.0f;
+    std::vector<fckfft::Complex> state(f.size());
+    bool denormal = false;
+    for (int block = 0; block < 2000 && !denormal; ++block)
+    {
+        bank.process(x.data(), x.size());
+        bank.values(state.data());
+        for (const fckfft::Complex& v : state)
+            for (float c : {v.re, v.im})
+                denormal = denormal || (c != 0.0f && std::fabs(c) < 1.17549435e-38f);
+    }
+    CHECK(!denormal);
 }
