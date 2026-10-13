@@ -86,6 +86,7 @@ if(FCKFFT_BUILD_TESTS)
             "qemu-system-arm;-M;mps2-an500;-nographic;-monitor;none;-semihosting-config;enable=on,target=native;-kernel")
     endif()
     add_test(NAME fckfft_tests COMMAND fckfft_tests)
+    set_tests_properties(fckfft_tests PROPERTIES TIMEOUT 600)
 endif()
 
 if(FCKFFT_BUILD_BENCHMARKS AND NOT FCKFFT_TEST_MPS2_AN500)

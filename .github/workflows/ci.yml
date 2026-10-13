@@ -8,6 +8,7 @@ on:
 jobs:
   linux:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -28,6 +29,7 @@ jobs:
 
   fast-math:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +43,7 @@ jobs:
 
   sanitizers:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -53,6 +56,7 @@ jobs:
 
   fuzz:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_COMPILER=clang++ -DFCKFFT_BUILD_FUZZERS=ON -DFCKFFT_BUILD_TESTS=OFF -DFCKFFT_BUILD_BENCHMARKS=OFF
@@ -61,6 +65,7 @@ jobs:
 
   package:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DFCKFFT_BUILD_TESTS=OFF -DFCKFFT_BUILD_BENCHMARKS=OFF
@@ -71,6 +76,7 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -85,6 +91,7 @@ jobs:
 
   macos:
     runs-on: macos-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -95,6 +102,7 @@ jobs:
 
   arm-linux:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -124,6 +132,7 @@ jobs:
 
   cortex-m7:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib qemu-system-arm
@@ -135,6 +144,7 @@ jobs:
 
   daisy:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
@@ -146,6 +156,7 @@ jobs:
 
   juce:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - run: >
