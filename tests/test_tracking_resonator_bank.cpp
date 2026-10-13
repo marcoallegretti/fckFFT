@@ -23,7 +23,8 @@ static std::vector<float> semitones(float first, std::size_t count)
     return f;
 }
 
-static std::size_t strongest(const fckfft::TrackingResonatorBank& bank)
+template <class Bank>
+static std::size_t strongest(const Bank& bank)
 {
     std::size_t best = 0;
     for (std::size_t k = 1; k < bank.size(); ++k)
@@ -320,6 +321,10 @@ TEST_CASE(tracking_move_and_contract)
     static_assert(!std::is_copy_constructible<fckfft::DynamicTrackingResonatorBank>::value, "banks are not copyable");
     static_assert(!std::is_move_constructible<fckfft::StaticTrackingResonatorBank<4>>::value, "static banks own inline storage");
     static_assert(noexcept(std::declval<fckfft::DynamicTrackingResonatorBank&>().process(nullptr, 0)), "process does not throw");
+    static_assert(!std::is_constructible<fckfft::TrackingResonatorBank, fckfft::StaticTrackingResonatorBank<4>&&>::value,
+                  "owning banks do not convert to a storage view");
+    static_assert(!std::is_constructible<fckfft::TrackingResonatorBank, fckfft::DynamicTrackingResonatorBank&&>::value,
+                  "owning banks do not convert to a storage view");
     const float f[4] = {220.0f, 330.0f, 440.0f, 660.0f};
     const std::vector<float> x = signals::tone(4800, 48000.0, 440.0);
     fckfft::DynamicTrackingResonatorBank reference;
@@ -350,7 +355,7 @@ TEST_CASE(tracking_failed_init_keeps_configuration)
 {
     std::vector<float> f(12);
     fckfft::logUniformFrequencies(110.0f, 12.0f, f.size(), f.data());
-    const std::vector<float> high(12, 15000.0f);
+    const std::vector<float> high(13, 15000.0f);
     const std::vector<float> x = signals::tone(4800, 48000.0, 233.0);
     fckfft::DynamicTrackingResonatorBank twin, dynamic;
     fckfft::StaticTrackingResonatorBank<12> fixed;
@@ -358,7 +363,7 @@ TEST_CASE(tracking_failed_init_keeps_configuration)
     CHECK(dynamic.init(f.data(), f.size(), 48000.0f, fckfft::TrackingRule::normalizedChord));
     CHECK(fixed.init(f.data(), f.size(), 48000.0f, fckfft::TrackingRule::normalizedChord));
     const float tiny[12] = {1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f, 1e-9f};
-    CHECK(!dynamic.init(high.data(), high.size(), 22050.0f));
+    CHECK(!dynamic.init(high.data(), 12, 22050.0f));
     CHECK(!dynamic.init(f.data(), tiny, nullptr, nullptr, f.size(), 48000.0f));
     CHECK(!fixed.init(high.data(), 13, 48000.0f));
     CHECK(!fixed.init(f.data(), tiny, nullptr, nullptr, f.size(), 48000.0f));

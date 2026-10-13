@@ -343,6 +343,12 @@ TEST_CASE(bank_move_and_contract)
     static_assert(std::is_nothrow_move_assignable<fckfft::DynamicResonatorBank>::value, "dynamic banks move-assign without throwing");
     static_assert(!std::is_copy_constructible<fckfft::DynamicResonatorBank>::value, "banks are not copyable");
     static_assert(!std::is_move_constructible<fckfft::StaticResonatorBank<4>>::value, "static banks own inline storage");
+    static_assert(!std::is_constructible<fckfft::ResonatorBank, fckfft::StaticResonatorBank<4>&&>::value,
+                  "owning banks do not convert to a storage view");
+    static_assert(!std::is_constructible<fckfft::ResonatorBank, fckfft::DynamicResonatorBank&&>::value,
+                  "owning banks do not convert to a storage view");
+    static_assert(!std::is_convertible<fckfft::DynamicResonatorBank*, fckfft::ResonatorBank*>::value,
+                  "owning banks do not convert to a storage view");
     static_assert(noexcept(std::declval<fckfft::DynamicResonatorBank&>().process(nullptr, 0)), "process does not throw");
     const float f[4] = {220.0f, 330.0f, 440.0f, 660.0f};
     const std::vector<float> x = signals::tone(4800, 48000.0, 440.0);
@@ -514,11 +520,13 @@ TEST_CASE(bank_failed_init_keeps_configuration)
     CHECK(!fixed.init(high.data(), 10, 22050.0f));
     CHECK(!caller.init(storage.data(), storage.size(), high.data(), 10, 22050.0f));
     CHECK(!caller.init(storage.data(), 4, f.data(), f.size(), 48000.0f));
-    for (fckfft::ResonatorBank* bank : {static_cast<fckfft::ResonatorBank*>(&dynamic), static_cast<fckfft::ResonatorBank*>(&fixed), &caller})
-    {
-        CHECK(bank->isInitialized() && bank->size() == f.size() && bank->sampleRate() == 48000.0f);
-        bank->process(x.data(), x.size());
+    const auto unchanged = [&](auto& bank) {
+        CHECK(bank.isInitialized() && bank.size() == f.size() && bank.sampleRate() == 48000.0f);
+        bank.process(x.data(), x.size());
         for (std::size_t k = 0; k < f.size(); ++k)
-            CHECK_NEAR(bank->power(k), twin.power(k), 0.0);
-    }
+            CHECK_NEAR(bank.power(k), twin.power(k), 0.0);
+    };
+    unchanged(dynamic);
+    unchanged(fixed);
+    unchanged(caller);
 }

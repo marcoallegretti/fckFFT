@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <utility>
 #include <vector>
 
 #include "dynamics.h"
@@ -542,57 +543,78 @@ private:
     TrackingRule rule_ = TrackingRule::ewma;
 };
 
-template <std::size_t MaxResonators>
-class StaticTrackingResonatorBank : public TrackingResonatorBank
+template <class Storage>
+class OwningTrackingResonatorBank : private TrackingResonatorBank
 {
 public:
-    static constexpr std::size_t kCapacity = MaxResonators;
-
-    StaticTrackingResonatorBank() = default;
-    StaticTrackingResonatorBank(StaticTrackingResonatorBank&&) = delete;
-    StaticTrackingResonatorBank& operator=(StaticTrackingResonatorBank&&) = delete;
+    using TrackingResonatorBank::kLanes;
+    using TrackingResonatorBank::kNormalizeInterval;
+    using TrackingResonatorBank::kInitialAccumulatedPower;
+    using TrackingResonatorBank::storageSize;
+    using TrackingResonatorBank::validParameters;
+    using TrackingResonatorBank::reset;
+    using TrackingResonatorBank::process;
+    using TrackingResonatorBank::isInitialized;
+    using TrackingResonatorBank::size;
+    using TrackingResonatorBank::sampleRate;
+    using TrackingResonatorBank::rule;
+    using TrackingResonatorBank::thresholdDb;
+    using TrackingResonatorBank::accumulatedPower;
+    using TrackingResonatorBank::naturalFrequency;
+    using TrackingResonatorBank::alpha;
+    using TrackingResonatorBank::beta;
+    using TrackingResonatorBank::gamma;
+    using TrackingResonatorBank::setRule;
+    using TrackingResonatorBank::setThresholdDb;
+    using TrackingResonatorBank::setPowerTimeConstant;
+    using TrackingResonatorBank::setGamma;
+    using TrackingResonatorBank::value;
+    using TrackingResonatorBank::power;
+    using TrackingResonatorBank::magnitude;
+    using TrackingResonatorBank::phase;
+    using TrackingResonatorBank::deltaPhase;
+    using TrackingResonatorBank::resonantFrequency;
+    using TrackingResonatorBank::instantaneousFrequency;
+    using TrackingResonatorBank::values;
+    using TrackingResonatorBank::powers;
+    using TrackingResonatorBank::magnitudes;
+    using TrackingResonatorBank::phases;
+    using TrackingResonatorBank::resonantFrequencies;
+    using TrackingResonatorBank::instantaneousFrequencies;
 
     bool init(const float* frequencies, const float* alphas, const float* betas, const float* gammas,
-              std::size_t count, float sampleRate, TrackingRule rule = TrackingRule::ewma, float thresholdDb = -60.0f) noexcept
+              std::size_t count, float sampleRate, TrackingRule rule = TrackingRule::ewma,
+              float thresholdDb = -60.0f) noexcept(noexcept(std::declval<Storage&>().acquire(0)))
     {
-        return count <= MaxResonators
-               && TrackingResonatorBank::init(storage_, kStorage, frequencies, alphas, betas, gammas, count,
+        if (!Storage::fits(storageSize(count))
+            || !validParameters(frequencies, alphas, betas, gammas, count, sampleRate, thresholdDb))
+            return false;
+        float* storage = storage_.acquire(storageSize(count));
+        return storage != nullptr
+               && TrackingResonatorBank::init(storage, storageSize(count), frequencies, alphas, betas, gammas, count,
                                               sampleRate, rule, thresholdDb);
     }
 
     bool init(const float* frequencies, std::size_t count, float sampleRate, TrackingRule rule = TrackingRule::ewma,
-              float thresholdDb = -60.0f) noexcept
-    {
-        return count <= MaxResonators
-               && TrackingResonatorBank::init(storage_, kStorage, frequencies, count, sampleRate, rule, thresholdDb);
-    }
-
-private:
-    static constexpr std::size_t kStorage = storageSize(MaxResonators);
-    float storage_[kStorage];
-};
-
-class DynamicTrackingResonatorBank : public TrackingResonatorBank
-{
-public:
-    bool init(const float* frequencies, const float* alphas, const float* betas, const float* gammas,
-              std::size_t count, float sampleRate, TrackingRule rule = TrackingRule::ewma, float thresholdDb = -60.0f)
-    {
-        if (!validParameters(frequencies, alphas, betas, gammas, count, sampleRate, thresholdDb))
-            return false;
-        storage_.assign(storageSize(count), 0.0f);
-        return TrackingResonatorBank::init(storage_.data(), storage_.size(), frequencies, alphas, betas, gammas, count,
-                                           sampleRate, rule, thresholdDb);
-    }
-
-    bool init(const float* frequencies, std::size_t count, float sampleRate, TrackingRule rule = TrackingRule::ewma,
-              float thresholdDb = -60.0f)
+              float thresholdDb = -60.0f) noexcept(noexcept(std::declval<Storage&>().acquire(0)))
     {
         return init(frequencies, nullptr, nullptr, nullptr, count, sampleRate, rule, thresholdDb);
     }
 
 private:
-    std::vector<float> storage_;
+    Storage storage_;
+};
+
+template <std::size_t MaxResonators>
+class StaticTrackingResonatorBank
+    : public OwningTrackingResonatorBank<detail::InlineStorage<TrackingResonatorBank::storageSize(MaxResonators)>>
+{
+public:
+    static constexpr std::size_t kCapacity = MaxResonators;
+};
+
+class DynamicTrackingResonatorBank : public OwningTrackingResonatorBank<detail::VectorStorage>
+{
 };
 
 }

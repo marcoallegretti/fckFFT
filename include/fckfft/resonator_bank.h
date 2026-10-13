@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstddef>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "dynamics.h"
@@ -488,64 +489,108 @@ private:
     float sampleRate_ = 0.0f;
 };
 
-template <std::size_t MaxResonators>
-class StaticResonatorBank : public ResonatorBank
+namespace detail {
+
+template <std::size_t Floats>
+class InlineStorage
 {
 public:
-    static constexpr std::size_t kCapacity = MaxResonators;
+    InlineStorage() = default;
+    InlineStorage(InlineStorage&&) = delete;
+    InlineStorage& operator=(InlineStorage&&) = delete;
 
-    StaticResonatorBank() = default;
-    StaticResonatorBank(StaticResonatorBank&&) = delete;
-    StaticResonatorBank& operator=(StaticResonatorBank&&) = delete;
+    static bool fits(std::size_t floats) noexcept { return floats <= Floats; }
+    float* acquire(std::size_t floats) noexcept { return fits(floats) ? data_ : nullptr; }
 
-    bool init(const float* frequencies, const float* alphas, const float* betas, std::size_t count, float sampleRate) noexcept
+private:
+    float data_[Floats];
+};
+
+class VectorStorage
+{
+public:
+    static bool fits(std::size_t) noexcept { return true; }
+    float* acquire(std::size_t floats)
     {
-        return count <= MaxResonators
-               && ResonatorBank::init(storage_, kStorage, frequencies, alphas, betas, count, sampleRate);
-    }
-
-    bool init(const float* frequencies, const float* alphas, std::size_t count, float sampleRate) noexcept
-    {
-        return count <= MaxResonators && ResonatorBank::init(storage_, kStorage, frequencies, alphas, count, sampleRate);
-    }
-
-    bool init(const float* frequencies, std::size_t count, float sampleRate) noexcept
-    {
-        return count <= MaxResonators && ResonatorBank::init(storage_, kStorage, frequencies, count, sampleRate);
+        data_.assign(floats, 0.0f);
+        return data_.data();
     }
 
 private:
-    static constexpr std::size_t kStorage = storageSize(MaxResonators);
-    float storage_[kStorage];
+    std::vector<float> data_;
 };
 
-class DynamicResonatorBank : public ResonatorBank
+}
+
+template <class Storage>
+class OwningResonatorBank : private ResonatorBank
 {
 public:
-    bool init(const float* frequencies, const float* alphas, const float* betas, std::size_t count, float sampleRate)
+    using ResonatorBank::kLanes;
+    using ResonatorBank::kRecoveryInterval;
+    using ResonatorBank::storageSize;
+    using ResonatorBank::validParameters;
+    using ResonatorBank::reset;
+    using ResonatorBank::process;
+    using ResonatorBank::isInitialized;
+    using ResonatorBank::size;
+    using ResonatorBank::sampleRate;
+    using ResonatorBank::samplesProcessed;
+    using ResonatorBank::frequency;
+    using ResonatorBank::alpha;
+    using ResonatorBank::beta;
+    using ResonatorBank::timeConstant;
+    using ResonatorBank::setAlpha;
+    using ResonatorBank::setBeta;
+    using ResonatorBank::setFrequency;
+    using ResonatorBank::value;
+    using ResonatorBank::power;
+    using ResonatorBank::magnitude;
+    using ResonatorBank::phase;
+    using ResonatorBank::values;
+    using ResonatorBank::powers;
+    using ResonatorBank::magnitudes;
+    using ResonatorBank::phases;
+
+    bool init(const float* frequencies, const float* alphas, const float* betas, std::size_t count,
+              float sampleRate) noexcept(noexcept(std::declval<Storage&>().acquire(0)))
     {
-        if (!validParameters(frequencies, alphas, betas, count, sampleRate))
+        if (!Storage::fits(storageSize(count)) || !validParameters(frequencies, alphas, betas, count, sampleRate))
             return false;
-        storage_.assign(storageSize(count), 0.0f);
-        return ResonatorBank::init(storage_.data(), storage_.size(), frequencies, alphas, betas, count, sampleRate);
+        float* storage = storage_.acquire(storageSize(count));
+        return storage != nullptr
+               && ResonatorBank::init(storage, storageSize(count), frequencies, alphas, betas, count, sampleRate);
     }
 
-    bool init(const float* frequencies, const float* alphas, std::size_t count, float sampleRate)
+    bool init(const float* frequencies, const float* alphas, std::size_t count,
+              float sampleRate) noexcept(noexcept(std::declval<Storage&>().acquire(0)))
     {
         return init(frequencies, alphas, alphas, count, sampleRate);
     }
 
-    bool init(const float* frequencies, std::size_t count, float sampleRate)
+    bool init(const float* frequencies, std::size_t count,
+              float sampleRate) noexcept(noexcept(std::declval<Storage&>().acquire(0)))
     {
         return init(frequencies, nullptr, nullptr, count, sampleRate);
     }
 
 private:
-    std::vector<float> storage_;
+    Storage storage_;
 };
 
-inline std::size_t analyze(ResonatorBank& bank, const float* signal, std::size_t numSamples, std::size_t hop,
-                           Complex* frames) noexcept
+template <std::size_t MaxResonators>
+class StaticResonatorBank : public OwningResonatorBank<detail::InlineStorage<ResonatorBank::storageSize(MaxResonators)>>
+{
+public:
+    static constexpr std::size_t kCapacity = MaxResonators;
+};
+
+class DynamicResonatorBank : public OwningResonatorBank<detail::VectorStorage>
+{
+};
+
+template <class Bank>
+std::size_t analyze(Bank& bank, const float* signal, std::size_t numSamples, std::size_t hop, Complex* frames) noexcept
 {
     if (hop == 0)
         return 0;
