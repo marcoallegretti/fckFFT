@@ -151,13 +151,16 @@ Daisy bootloader.
 
 ### JUCE
 
-`juce/fckfft` is a JUCE module. It includes the headers from this repository, so add
-it by path rather than copying it:
+`juce/fckfft_juce` is a JUCE module. It includes the headers from this repository,
+so add it by path rather than copying it, and include `<fckfft_juce/fckfft_juce.h>`:
 
 ```cmake
-juce_add_module(path/to/fckFFT/juce/fckfft)
-target_link_libraries(MyPlugin PRIVATE fckfft)
+juce_add_module(path/to/fckFFT/juce/fckfft_juce)
+target_link_libraries(MyPlugin PRIVATE fckfft_juce)
 ```
+
+The module target is named `fckfft_juce` so that it can coexist with the `fckfft`
+target of this repository's CMake project.
 
 In Projucer, add the module from `path/to/fckFFT/juce` without enabling "copy
 module". `examples/juce/spectrogram` is a VST3/AU/Standalone plugin that draws a

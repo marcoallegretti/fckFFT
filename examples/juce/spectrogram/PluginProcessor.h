@@ -1,6 +1,6 @@
 #pragma once
 
-#include <fckfft/fckfft.h>
+#include <fckfft_juce/fckfft_juce.h>
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <atomic>
@@ -53,6 +53,7 @@ private:
 
     fckfft::DynamicResonatorBank bank_;
     std::vector<float> mono_;
+    std::vector<float> magnitudes_;
     std::vector<float> frames_;
     juce::AbstractFifo fifo_{kFifoFrames};
     std::atomic<float> topFrequency_{kMaxFrequency};

@@ -10,7 +10,7 @@ else()
     find_package(JUCE CONFIG REQUIRED)
 endif()
 
-juce_add_module(${CMAKE_CURRENT_SOURCE_DIR}/../../../juce/fckfft)
+juce_add_module(${CMAKE_CURRENT_SOURCE_DIR}/../../../juce/fckfft_juce)
 
 juce_add_plugin(FckfftSpectrogram
     COMPANY_NAME fckFFT
@@ -37,7 +37,7 @@ target_compile_definitions(FckfftSpectrogram
 
 target_link_libraries(FckfftSpectrogram
     PRIVATE
-        fckfft
+        fckfft_juce
         juce::juce_audio_utils
     PUBLIC
         juce::juce_recommended_config_flags

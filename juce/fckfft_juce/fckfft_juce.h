@@ -1,7 +1,7 @@
 /*
 BEGIN_JUCE_MODULE_DECLARATION
 
-  ID:                 fckfft
+  ID:                 fckfft_juce
   vendor:             fckfft
   version:            0.2.0-alpha1
   name:               fckFFT
