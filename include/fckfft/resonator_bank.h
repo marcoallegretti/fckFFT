@@ -162,7 +162,7 @@ inline bool acceptablePoles(std::uint64_t increment, float alpha, float beta)
 {
     double s, c;
     turnSinCos(increment, s, c);
-    return acceptable(pole(s, c, alpha), alpha) && (beta == alpha || acceptable(pole(s, c, beta), beta));
+    return acceptable(pole(s, c, alpha), alpha) && acceptable(pole(s, c, beta), beta);
 }
 
 inline void phasorStep(float frequency, float sampleRate, float& c, float& s)
@@ -517,7 +517,7 @@ protected:
             info_[count + k] = a;
             info_[2 * count + k] = b;
             const detail::Pole pa = detail::pole(s, c, a);
-            writeCoefficients(k, inc, pa, b == a ? pa : detail::pole(s, c, b));
+            writeCoefficients(k, inc, pa, detail::pole(s, c, b));
         }
         reset();
         return true;

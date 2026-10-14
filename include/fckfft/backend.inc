@@ -616,7 +616,7 @@ struct TrackingKernel : TrackingLayout
                 V bad = Ops::nonFinite(ld(base, kZr));
                 for (int f = kZr + 1; f < kFields; ++f)
                     bad = Ops::either(bad, Ops::nonFinite(ld(base, f)));
-                if (Ops::reduceMax(Ops::blend(bad, zero, Ops::set(1.0f))) == 0.0f)
+                if (Ops::reduceMax(Ops::blend(bad, zero, Ops::set(1.0f))) < 0.5f)
                     continue;
                 for (int f = kZr; f < kFields; ++f)
                 {
