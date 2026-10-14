@@ -360,16 +360,15 @@ run to run. ns per input sample, 48-sample blocks:
 
 | Machine, build | fixed 88 | fixed 880 | chord 88 | chord 880 | EWMA 88 | EWMA 880 |
 |---|---|---|---|---|---|---|
-| AMD EPYC 9V74, GCC, AVX2 + FMA | 13.7 | 128 | 129 | 1139 | 256 | 1938 |
-| AMD EPYC 7763, Clang, AVX2 + FMA | 19.1 | 176 | 153 | 1314 | 240 | 2200 |
-| Intel Xeon 8370C, MSVC, AVX2 + FMA | 16.9 | 320 | 150 | 1299 | 244 | 2180 |
-| AMD EPYC 7763, MSVC, SSE2 | 45.6 | 427 | 341 | 3243 | 588 | 6193 |
-| Apple M1 (virtual), Clang, NEON | 24.8 | 220 | 167 | 1670 | 308 | 3019 |
+| AMD EPYC 9V45, GCC, AVX2 + FMA | 12.5 | 116 | 120 | 1095 | 166 | 1501 |
+| AMD EPYC 9V45, Clang, AVX2 + FMA | 15.8 | 147 | 118 | 1083 | 161 | 1445 |
+| AMD EPYC 9V74, MSVC, AVX2 + FMA | 20.5 | 191 | 199 | 1802 | 267 | 2416 |
+| Apple M2 Pro (virtual), Clang, NEON | 21.5 | 195 | 183 | 1992 | 275 | 2692 |
 
-On the same Apple M1 runner, the previous phasor kernel measured 31–34 ns at 88 bins
-and 318–540 ns at 880 bins over two runs. The resonators README reports 41.9 ns
-(88 bins) and 357 ns (880 bins) for the Rust crate on an Apple M2 Max, and 66.8 and
-578 ns for noFFT with Accelerate; on the slower M1, fckFFT takes 24.8 and 220 ns.
+All x86 rows come from default builds that select the AVX2 kernels at run time. The
+resonators README reports 41.9 ns (88 bins) and 357 ns (880 bins) for the Rust crate
+on an Apple M2 Max, and 66.8 and 578 ns for noFFT with Accelerate; on the virtual
+M2 Pro runner, fckFFT takes 21.5 and 195 ns.
 
 ### Cortex-M7 (Daisy Seed)
 
