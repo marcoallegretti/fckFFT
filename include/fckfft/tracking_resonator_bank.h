@@ -185,7 +185,7 @@ public:
         return true;
     }
 
-    static bool validParameters(const float* frequencies, const float* alphas, const float* betas, const float* gammas,
+    FCKFFT_NOINLINE static bool validParameters(const float* frequencies, const float* alphas, const float* betas, const float* gammas,
                                 std::size_t count, float sampleRate, float thresholdDb) noexcept
     {
         if (frequencies == nullptr || count == 0 || !detail::finite(sampleRate) || !(sampleRate > 0.0f)
@@ -342,7 +342,7 @@ private:
                && detail::acceptableDecay(decay, 1.0 - static_cast<double>(1.0f - decay));
     }
 
-    bool initImpl(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
+    FCKFFT_NOINLINE bool initImpl(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
                   const float* betas, const float* gammas, std::size_t count, float sampleRate, TrackingRule rule,
                   float thresholdDb) noexcept
     {

@@ -10,8 +10,10 @@
 
 #if defined(_MSC_VER) && !defined(__clang__)
 #define FCKFFT_INLINE __forceinline
+#define FCKFFT_NOINLINE __declspec(noinline)
 #else
 #define FCKFFT_INLINE inline __attribute__((always_inline))
+#define FCKFFT_NOINLINE __attribute__((noinline))
 #endif
 
 #if defined(__GNUC__) && !defined(__clang__)

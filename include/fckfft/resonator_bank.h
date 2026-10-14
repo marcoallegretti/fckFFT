@@ -264,7 +264,7 @@ public:
     float beta(std::size_t k) const noexcept { return info_[2 * size_ + k]; }
     float timeConstant(std::size_t k) const noexcept { return timeConstantFromAlpha(alpha(k), sampleRate_); }
 
-    static bool validParameters(const float* frequencies, const float* alphas, const float* betas, std::size_t count,
+    FCKFFT_NOINLINE static bool validParameters(const float* frequencies, const float* alphas, const float* betas, std::size_t count,
                                 float sampleRate) noexcept
     {
         if (frequencies == nullptr || count == 0 || !detail::finite(sampleRate) || !(sampleRate > 0.0f))
@@ -488,7 +488,7 @@ private:
     }
 
 protected:
-    bool initImpl(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
+    FCKFFT_NOINLINE bool initImpl(float* storage, std::size_t storageCount, const float* frequencies, const float* alphas,
                   const float* betas, std::size_t count, float sampleRate, bool validated = false) noexcept
     {
         if (storage == nullptr || count == 0 || storageCount < storageSize(count)

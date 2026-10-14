@@ -145,7 +145,7 @@ make program-dfu   # with the board in DFU mode
 ```
 
 The program waits for a serial terminal on the USB port (for example
-`screen /dev/ttyACM0`) before it starts. The Patch SM build uses 98% of the internal
+`screen /dev/ttyACM0`) before it starts. The Patch SM build uses 96% of the internal
 flash; if another toolchain pushes it over, build it with `APP_TYPE=BOOT_SRAM` and the
 Daisy bootloader.
 
