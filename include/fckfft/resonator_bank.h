@@ -19,13 +19,6 @@ namespace detail {
 
 constexpr double kTwoPi = 6.283185307179586476925286766559;
 
-inline bool finite(float x)
-{
-    std::uint32_t u;
-    std::memcpy(&u, &x, sizeof u);
-    return (u & 0x7F800000u) != 0x7F800000u;
-}
-
 inline float mulAdd(float a, float b, float c)
 {
 #if defined(__FP_FAST_FMAF)

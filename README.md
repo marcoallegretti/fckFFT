@@ -46,8 +46,10 @@ Without `alphas`, each resonator uses the per-frequency heuristic from the Reson
 paper (`fckfft::heuristicAlpha`). Pass explicit `alphas` and `betas` arrays to
 choose the time constants; `fckfft::alphaFromTimeConstant` converts from seconds,
 `fckfft::alphaForBandwidth` from a −3 dB bandwidth in Hz and `fckfft::alphaForQ`
-from a quality factor. A full-scale sine at a resonator's frequency produces a
-magnitude of 0.5.
+from a quality factor. These helpers return NaN for arguments outside their domain
+(a non-positive sample rate, bandwidth or Q, a negative time constant or frequency, a
+bandwidth above the sample rate), and `init` and the setters reject NaN. A full-scale
+sine at a resonator's frequency produces a magnitude of 0.5.
 
 Banks come in three storage flavours with the same interface:
 

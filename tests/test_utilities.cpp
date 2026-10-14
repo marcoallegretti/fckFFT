@@ -1,5 +1,6 @@
 #include <fckfft/dynamics.h>
 #include <fckfft/frequencies.h>
+#include <fckfft/resonator_bank.h>
 
 #include "check.h"
 
@@ -144,4 +145,27 @@ TEST_CASE(frequency_layouts_accept_zero_count)
     fckfft::logUniformFrequencies(100.0f, 12.0f, 0, guard + 1);
     for (float g : guard)
         CHECK(g == -1.0f);
+}
+
+TEST_CASE(helpers_return_nan_outside_their_domain)
+{
+    const float sr = 48000.0f, nan = check::fromBits(0x7FC00000u), inf = check::fromBits(0x7F800000u);
+    const float invalid[] = {
+        fckfft::alphaFromTimeConstant(-0.1f, sr),      fckfft::alphaFromTimeConstant(0.1f, 0.0f),
+        fckfft::alphaFromTimeConstant(nan, sr),        fckfft::alphaFromTimeConstant(inf, sr),
+        fckfft::timeConstantFromAlpha(0.0f, sr),       fckfft::timeConstantFromAlpha(1.5f, sr),
+        fckfft::timeConstantFromAlpha(0.01f, -sr),     fckfft::alphaForBandwidth(-10.0f, sr),
+        fckfft::alphaForBandwidth(0.0f, sr),           fckfft::alphaForBandwidth(1.5f * sr, sr),
+        fckfft::alphaForBandwidth(nan, sr),            fckfft::alphaForQ(440.0f, 0.0f, sr),
+        fckfft::alphaForQ(440.0f, -17.0f, sr),         fckfft::alphaForQ(nan, 17.0f, sr),
+        fckfft::heuristicAlpha(-1.0f, sr),             fckfft::heuristicAlpha(440.0f, 0.0f),
+        fckfft::heuristicAlpha(440.0f, sr, 0.0f),      fckfft::heuristicAlpha(440.0f, sr, 1.0f, nan),
+        fckfft::heuristicAlpha(inf, sr)};
+    for (float a : invalid)
+        CHECK(!check::finite(a));
+    CHECK_NEAR(fckfft::alphaFromTimeConstant(0.0f, sr), 1.0, 0.0);
+    CHECK(fckfft::alphaForBandwidth(sr, sr) > 0.0f && fckfft::alphaForBandwidth(sr, sr) <= 1.0f);
+    const float f = 440.0f, a = fckfft::alphaForQ(f, -17.0f, sr);
+    fckfft::DynamicResonatorBank bank;
+    CHECK(!bank.init(&f, &a, 1, sr));
 }

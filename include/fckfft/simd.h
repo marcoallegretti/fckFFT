@@ -293,6 +293,21 @@ namespace avx512 {
 #define FCKFFT_HAS_AVX512_BACKEND 1
 #endif
 
+inline bool finite(float x) noexcept
+{
+    std::uint32_t u;
+    std::memcpy(&u, &x, sizeof u);
+    return (u & 0x7F800000u) != 0x7F800000u;
+}
+
+inline float notANumber() noexcept
+{
+    const std::uint32_t u = 0x7FC00000u;
+    float x;
+    std::memcpy(&x, &u, sizeof x);
+    return x;
+}
+
 constexpr std::size_t kAlignmentFloats = 16;
 
 inline float* alignStorage(float* storage) noexcept
