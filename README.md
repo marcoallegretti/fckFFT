@@ -49,7 +49,10 @@ choose the time constants; `fckfft::alphaFromTimeConstant` converts from seconds
 from a quality factor. These helpers return NaN for arguments outside their domain
 (a non-positive sample rate, bandwidth or Q, a negative time constant or frequency, a
 bandwidth above the sample rate), and `init` and the setters reject NaN. A full-scale
-sine at a resonator's frequency produces a magnitude of 0.5.
+sine at a resonator's frequency produces a magnitude of 0.5: with the heuristic time
+constants at 48 kHz, within ±0.4% from 20 Hz to 12 kHz and ±1% at 5 Hz. Close to
+Nyquist the sine's mirror image falls inside the resonator's bandwidth, so the
+magnitude reads 3.7% high at 22 kHz and 15% high at 23.5 kHz.
 
 Banks come in three storage flavours with the same interface:
 
