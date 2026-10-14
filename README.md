@@ -167,6 +167,25 @@ module". `examples/juce/spectrogram` is a VST3/AU/Standalone plugin that draws a
 scrolling spectrogram and reports its DSP load. Build it with
 `cmake -S examples/juce/spectrogram -B build -DJUCE_DIR=/path/to/JUCE`.
 
+### Integration checklist
+
+- Compile every translation unit that includes fckFFT with the same instruction-set
+  flags; mixing them is a link error rather than silent corruption.
+- Call `init` outside the audio callback (for example in `prepareToPlay`) and check
+  its return value. `Dynamic` banks allocate there and nowhere else.
+- In the audio callback, use only `process`, the read-outs and the setters; none of
+  them allocates, locks or makes system calls.
+- Give each bank to one thread. To show results elsewhere, copy them out after
+  `process`, for example through a lock-free FIFO.
+- Process blocks rather than single samples: per-sample calls cost the fixed bank
+  2.2–2.8× as much (the tracking bank about the same either way).
+- Pass the channel count as `stride` to read one channel of interleaved audio.
+- On a Daisy, use `Static` banks placed in DTCM.
+- For bit-identical results on every x86 machine, call `fckfft::setIsaLimit(Isa::sse2)`
+  before `init`. AVX-512 (opt-in) pays off for banks larger than one AVX2 group (more
+  than 24 fixed or 16 tracking resonators); below that, AVX2 is 15–20% faster.
+- `-ffast-math` and `/fp:fast` are supported (see Guarantees).
+
 ## SIMD selection
 
 On x86, one binary carries SSE2, AVX2 + FMA and AVX-512 kernels and each bank picks
