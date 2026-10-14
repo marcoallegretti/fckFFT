@@ -3,12 +3,29 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
+
+namespace {
+
+float decibels(float magnitude)
+{
+    std::uint32_t bits;
+    std::memcpy(&bits, &magnitude, sizeof bits);
+    if ((bits & 0x7F800000u) == 0x7F800000u || !(magnitude > 5e-10f))
+        return -180.0f;
+    return 20.0f * std::log10(2.0f * magnitude);
+}
+
+}
 
 SpectrogramProcessor::SpectrogramProcessor()
     : AudioProcessor(BusesProperties()
                          .withInput("Input", juce::AudioChannelSet::stereo(), true)
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      parameters(*this, nullptr, "state", createLayout())
+      parameters(*this, nullptr, "state", createLayout()),
+      magnitudes_(static_cast<size_t>(kBins)),
+      frames_(static_cast<size_t>(kFifoFrames * kBins), -180.0f)
 {
 }
 
@@ -26,11 +43,10 @@ void SpectrogramProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     const float top = std::min(kMaxFrequency, 0.45f * static_cast<float>(sampleRate));
     std::vector<float> frequencies(kBins);
     fckfft::logSpacedFrequencies(kMinFrequency, top, kBins, frequencies.data());
-    bank_.init(frequencies.data(), kBins, static_cast<float>(sampleRate));
+    if (!bank_.init(frequencies.data(), kBins, static_cast<float>(sampleRate)))
+        return;
     topFrequency_.store(top);
     mono_.assign(static_cast<size_t>(std::max(samplesPerBlock, 1)), 0.0f);
-    frames_.assign(static_cast<size_t>(kFifoFrames * kBins), 0.0f);
-    fifo_.reset();
     samplesPerFrame_ = std::max(1, static_cast<int>(std::lround(sampleRate / kFramesPerSecond)));
     samplesUntilFrame_ = samplesPerFrame_;
     loadMeasurer_.reset(sampleRate, samplesPerBlock);
@@ -91,8 +107,9 @@ void SpectrogramProcessor::pushFrame()
     if (index < 0)
         return;
     float* frame = frames_.data() + static_cast<size_t>(index) * kBins;
+    bank_.magnitudes(magnitudes_.data());
     for (int k = 0; k < kBins; ++k)
-        frame[k] = 20.0f * std::log10(std::max(2.0f * bank_.magnitude(static_cast<std::size_t>(k)), 1e-9f));
+        frame[k] = decibels(magnitudes_[static_cast<size_t>(k)]);
 }
 
 int SpectrogramProcessor::popFrames(float* destination, int maxFrames)
