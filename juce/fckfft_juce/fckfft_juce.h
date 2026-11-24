@@ -3,7 +3,7 @@ BEGIN_JUCE_MODULE_DECLARATION
 
   ID:                 fckfft_juce
   vendor:             fckfft
-  version:            0.2.0-alpha1
+  version:            0.2.0-beta
   name:               fckFFT
   description:        Resonator bank spectral analysis without FFT
   website:            https://github.com/marcoallegretti/fckFFT
