@@ -39,7 +39,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - if: matrix.compiler == 'clang++-21'
-        run: wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s 21
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
+          echo "deb https://apt.llvm.org/noble/ llvm-toolchain-noble-21 main" | sudo tee /etc/apt/sources.list.d/llvm-21.list
+          sudo apt-get update && sudo apt-get install -y clang-21
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DFCKFFT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_FLAGS="-ffast-math ${{ matrix.flags }}"
       - run: cmake --build build --parallel
       - run: ctest --test-dir build --output-on-failure
