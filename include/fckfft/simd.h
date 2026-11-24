@@ -16,6 +16,12 @@
 #define FCKFFT_NOINLINE __attribute__((noinline))
 #endif
 
+#if defined(__GNUC__)
+#define FCKFFT_OPAQUE(v) __asm__("" : "+m"(v))
+#else
+#define FCKFFT_OPAQUE(v) ((void)0)
+#endif
+
 #if defined(__GNUC__) && !defined(__clang__)
 #define FCKFFT_VFP_FLAGS "cc", "vfpcc"
 #else
@@ -306,6 +312,7 @@ namespace avx512 {
 
 inline bool finite(float x) noexcept
 {
+    FCKFFT_OPAQUE(x);
     std::uint32_t u;
     std::memcpy(&u, &x, sizeof u);
     return (u & 0x7F800000u) != 0x7F800000u;
@@ -316,6 +323,7 @@ inline float notANumber() noexcept
     const std::uint32_t u = 0x7FC00000u;
     float x;
     std::memcpy(&x, &u, sizeof x);
+    FCKFFT_OPAQUE(x);
     return x;
 }
 

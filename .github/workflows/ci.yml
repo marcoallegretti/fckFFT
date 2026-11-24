@@ -34,10 +34,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        compiler: [g++, clang++]
+        compiler: [g++, clang++, clang++-21]
         flags: ["", "-march=x86-64-v3", "-DFCKFFT_NO_SIMD"]
     steps:
       - uses: actions/checkout@v4
+      - if: matrix.compiler == 'clang++-21'
+        run: wget -qO- https://apt.llvm.org/llvm.sh | sudo bash -s 21
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DFCKFFT_BUILD_BENCHMARKS=OFF -DCMAKE_CXX_FLAGS="-ffast-math ${{ matrix.flags }}"
       - run: cmake --build build --parallel
       - run: ctest --test-dir build --output-on-failure

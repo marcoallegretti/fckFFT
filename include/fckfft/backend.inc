@@ -98,6 +98,7 @@ struct Ops
     }
     static FCKFFT_INLINE V nonFinite(V a)
     {
+        FCKFFT_OPAQUE(a);
         return fromBits(0u - static_cast<std::uint32_t>((bits(a) & 0x7F800000u) == 0x7F800000u));
     }
     static FCKFFT_INLINE V either(V a, V b) { return fromBits(bits(a) | bits(b)); }
@@ -149,6 +150,7 @@ struct Ops
     }
     static FCKFFT_INLINE V nonFinite(V a)
     {
+        FCKFFT_OPAQUE(a);
         const __m128i e = _mm_set1_epi32(0x7F800000);
         return _mm_castsi128_ps(_mm_cmpeq_epi32(_mm_and_si128(_mm_castps_si128(a), e), e));
     }
@@ -195,6 +197,7 @@ struct Ops
     }
     static FCKFFT_INLINE V nonFinite(V a)
     {
+        FCKFFT_OPAQUE(a);
         const __m128i e = _mm_set1_epi32(0x7F800000);
         const __m128i lo = _mm_castps_si128(_mm256_castps256_ps128(a));
         const __m128i hi = _mm_castps_si128(_mm256_extractf128_ps(a, 1));
@@ -242,6 +245,7 @@ struct Ops
     }
     static FCKFFT_INLINE V nonFinite(V a)
     {
+        FCKFFT_OPAQUE(a);
         const __m256i e = _mm256_set1_epi32(0x7F800000);
         return _mm256_castsi256_ps(_mm256_cmpeq_epi32(_mm256_and_si256(_mm256_castps_si256(a), e), e));
     }
@@ -279,6 +283,7 @@ struct Ops
     static FCKFFT_INLINE float reduceMax(V a) { return _mm512_reduce_max_ps(a); }
     static FCKFFT_INLINE V nonFinite(V a)
     {
+        FCKFFT_OPAQUE(a);
         const __m512i e = _mm512_set1_epi32(0x7F800000);
         const __mmask16 m = _mm512_cmpeq_epi32_mask(_mm512_and_si512(_mm512_castps_si512(a), e), e);
         return _mm512_castsi512_ps(_mm512_maskz_set1_epi32(m, -1));
@@ -336,6 +341,7 @@ struct Ops
     static FCKFFT_INLINE V selectGe(V a, V b, V t, V f) { return vbslq_f32(vcgeq_f32(a, b), t, f); }
     static FCKFFT_INLINE V nonFinite(V a)
     {
+        FCKFFT_OPAQUE(a);
         const uint32x4_t e = vdupq_n_u32(0x7F800000u);
         return vreinterpretq_f32_u32(vceqq_u32(vandq_u32(vreinterpretq_u32_f32(a), e), e));
     }

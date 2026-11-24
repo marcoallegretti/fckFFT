@@ -63,9 +63,22 @@ inline float fromBits(std::uint32_t u)
 
 inline bool finite(float x)
 {
+#if defined(__GNUC__)
+    __asm__("" : "+m"(x));
+#endif
     std::uint32_t u;
     std::memcpy(&u, &x, sizeof u);
     return (u & 0x7F800000u) != 0x7F800000u;
+}
+
+inline bool finite(double x)
+{
+#if defined(__GNUC__)
+    __asm__("" : "+m"(x));
+#endif
+    std::uint64_t u;
+    std::memcpy(&u, &x, sizeof u);
+    return (u & 0x7FF0000000000000ull) != 0x7FF0000000000000ull;
 }
 
 inline int run()
@@ -106,7 +119,7 @@ inline int run()
     do                                                                                                                 \
     {                                                                                                                  \
         const double check_a = static_cast<double>(a), check_b = static_cast<double>(b);                               \
-        if (!(std::fabs(check_a - check_b) <= (tol)))                                                                  \
+        if (!(std::fabs(check_a - check_b) <= (tol)) || !check::finite(check_a - check_b))                             \
             check::failNear(__FILE__, __LINE__, #a " ~ " #b, check_a, check_b, (tol));                                 \
     } while (0)
 
