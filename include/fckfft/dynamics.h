@@ -22,6 +22,8 @@ inline float alphaFromTimeConstant(float timeConstant, float sampleRate)
 {
     if (!detail::positiveFinite(sampleRate) || !detail::finite(timeConstant) || timeConstant < 0.0f)
         return detail::notANumber();
+    if (!(timeConstant > 0.0f))
+        return 1.0f;
     return static_cast<float>(-std::expm1(-1.0 / (static_cast<double>(sampleRate) * timeConstant)));
 }
 

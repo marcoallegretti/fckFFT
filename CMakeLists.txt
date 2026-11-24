@@ -86,6 +86,23 @@ if(FCKFFT_BUILD_TESTS)
         set_target_properties(fckfft_tests PROPERTIES CROSSCOMPILING_EMULATOR
             "qemu-system-arm;-M;mps2-an500;-nographic;-monitor;none;-semihosting-config;enable=on,target=native;-kernel")
     endif()
+    add_library(fckfft_warnings OBJECT tests/warnings.cpp)
+    target_link_libraries(fckfft_warnings PRIVATE fckfft)
+    if(MSVC)
+        target_compile_options(fckfft_warnings PRIVATE /W4 /WX)
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_options(fckfft_warnings PRIVATE -Werror -Wall -Wshadow-all -Wshorten-64-to-32 -Wstrict-aliasing
+            -Wuninitialized -Wunused-parameter -Wconversion -Wsign-compare -Wint-conversion -Wconditional-uninitialized
+            -Wconstant-conversion -Wsign-conversion -Wbool-conversion -Wextra-semi -Wunreachable-code -Wcast-align
+            -Wshift-sign-overflow -Wmissing-prototypes -Wnullable-to-nonnull-conversion -Wswitch-enum -Wpedantic
+            -Wdeprecated -Wfloat-equal -Wmissing-field-initializers -Wzero-as-null-pointer-constant
+            -Wunused-private-field -Woverloaded-virtual -Wreorder -Winconsistent-missing-destructor-override)
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(fckfft_warnings PRIVATE -Werror -Wall -Wextra -Wpedantic -Wstrict-aliasing -Wuninitialized
+            -Wunused-parameter -Wsign-compare -Wsign-conversion -Wunreachable-code -Wcast-align -Wswitch-enum
+            -Wredundant-decls -Wshadow -Wfloat-equal -Wmissing-field-initializers -Woverloaded-virtual -Wreorder
+            -Wzero-as-null-pointer-constant -Wconversion)
+    endif()
     add_test(NAME fckfft_tests COMMAND fckfft_tests)
     set_tests_properties(fckfft_tests PROPERTIES TIMEOUT 600)
     if(FCKFFT_TEST_MPS2_AN500)

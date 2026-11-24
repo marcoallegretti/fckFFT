@@ -231,6 +231,11 @@ struct TrackingBackend
     void (*sanitize)(float*, std::size_t);
 };
 
+#if defined(_MSC_VER) && !defined(__clang__)
+#pragma warning(push)
+#pragma warning(disable : 4127)
+#endif
+
 namespace baseline {
 #define FCKFFT_BACKEND FCKFFT_BASELINE
 #if FCKFFT_BASELINE == FCKFFT_BACKEND_SCALAR
@@ -293,6 +298,10 @@ namespace avx512 {
 #pragma GCC pop_options
 #endif
 #define FCKFFT_HAS_AVX512_BACKEND 1
+#endif
+
+#if defined(_MSC_VER) && !defined(__clang__)
+#pragma warning(pop)
 #endif
 
 inline bool finite(float x) noexcept
